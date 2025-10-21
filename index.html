@@ -1,0 +1,1998 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>바다에서 길을 잃다: 생존 시뮬레이션 (모둠 활동용)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!--
+        Copyright (c) 2025 [Pinky-ne]
+        This work is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
+        You should have received a copy of the license along with this work. If not, see <http://creativecommons.org/licenses/by-nc-sa/4.0/>.
+    -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
+        html, body {
+            overscroll-behavior-y: contain;
+            min-height: 100vh;
+            min-height: -webkit-fill-available;
+            width: 100%;
+            background-color: #030712;
+        }
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            color: #e6f1ff;
+            background-image: linear-gradient(to top, rgba(3, 7, 18, 0.9), rgba(3, 7, 18, 1)), url('https://www.transparenttextures.com/patterns/wavecut.png');
+        }
+        #app-wrapper {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: flex-start; /* Cut off issue fix: Align content to the top */
+            justify-content: center;
+            overflow-y: auto;
+            padding-top: max(3rem, env(safe-area-inset-top));
+            padding-bottom: max(3rem, env(safe-area-inset-bottom));
+            padding-left: max(1rem, env(safe-area-inset-left));
+            padding-right: max(1rem, env(safe-area-inset-right));
+        }
+        #app-container {
+            background-color: rgba(15, 23, 42, 0.85); /* slate-900 with opacity */
+        }
+        .screen { display: none; }
+        .active-screen {
+            display: block;
+            overflow-y: auto;
+            max-height: 100vh;
+        }
+
+        /* flex 레이아웃을 사용하는 화면들 */
+        #knowledge-screen.active-screen,
+        #main-screen.active-screen,
+        #discussion-guide-screen.active-screen,
+        #group-ranking-screen.active-screen,
+        #report-screen.active-screen,
+        #evaluation-screen.active-screen {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .drag-handle {
+            cursor: grab;
+            padding: 0.5rem;
+            color: #94a3b8;
+        }
+        .drag-handle:hover {
+            color: #e2e8f0;
+        }
+        .sortable-ghost {
+            background: #334155;
+            opacity: 0.5;
+        }
+        .modal-base {
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.7);
+            padding: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s ease, visibility 0s 0.2s;
+        }
+        .modal-base.show {
+            opacity: 1;
+            visibility: visible;
+            transition: opacity 0.2s ease;
+        }
+        .modal-content {
+            position: relative;
+            margin: auto;
+            padding: 2rem;
+            width: 95%;
+            max-width: 500px;
+            transform: scale(0.95);
+            transition: transform 0.2s ease;
+        }
+        .modal-base.show .modal-content {
+            transform: scale(1);
+        }
+        #emergency-screen {
+            background-color: #000;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            z-index: 200;
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+            padding-left: env(safe-area-inset-left);
+            padding-right: env(safe-area-inset-right);
+        }
+        #emergency-message-container p {
+            opacity: 0;
+            animation: fadeIn 1.5s forwards;
+        }
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+        .rank-slot.empty {
+            cursor: pointer;
+            border-style: dashed;
+        }
+        .rank-slot.empty:hover {
+            background-color: #1e293b; /* slate-800 */
+        }
+
+        /* Evaluation Screen Styles */
+        #evaluation-form-container {
+           max-height: 75vh;
+           overflow-y: auto;
+           background-color: #0f172a; /* slate-900 */
+        }
+        .eval-radio-label, .eval-checkbox-label {
+           display: inline-flex;
+           align-items: center;
+           cursor: pointer;
+           padding: 0.5rem 1rem;
+           border-radius: 0.5rem;
+           transition: background-color 0.2s;
+           background-color: #334155; /* slate-700 */
+        }
+        .eval-radio-label:hover, .eval-checkbox-label:hover {
+           background-color: #475569; /* slate-600 */
+        }
+        input[type="radio"]:checked + .eval-radio-label,
+        input[type="checkbox"]:checked + .eval-checkbox-label {
+             background-color: #0e7490; /* cyan-700 */
+             color: white;
+             font-weight: bold;
+        }
+        input[type="radio"], input[type="checkbox"] {
+             display: none;
+        }
+    </style>
+</head>
+<body class="p-2 sm:p-4">
+
+    <!-- Fullscreen Button -->
+    <button id="fullscreen-btn" class="fixed top-4 right-4 z-50 p-2 bg-slate-700/50 hover:bg-slate-600/70 rounded-full text-white transition">
+        <svg id="fs-enter-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5L9 15m0 0H4.5m4.5 0V19.5"/><path d="M19.5 4.5L15 9m0 0h4.5M15 9V4.5"/><path d="M19.5 19.5L15 15m0 0h4.5m-4.5 0V19.5"/><path d="M4.5 4.5L9 9m0 0H4.5M9 9V4.5"/></svg>
+        <svg id="fs-exit-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M9 15l-6 6m6-6v4.5m0-4.5H4.5"/><path d="M15 9l6-6m-6 6V4.5m0 4.5h4.5"/><path d="M15 15l6 6m-6-6v4.5m0-4.5h4.5"/><path d="M9 9l-6-6m6 6V4.5m0-4.5H4.5"/></svg>
+    </button>
+
+    <div id="app-wrapper">
+        <div id="app-container" class="w-full max-w-7xl mx-auto backdrop-blur-sm rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8">
+
+            <!-- Screen 0: Welcome Screen -->
+            <div id="welcome-screen" class="screen active-screen text-center">
+                <h1 class="text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-6">바다에서 길을 잃다</h1>
+                <p class="text-lg sm:text-xl text-slate-300 mb-8 max-w-3xl mx-auto break-keep">
+                    바다에서 살아남기 위한 모둠 협동 학습에 오신 것을 환영합니다.
+                </p>
+
+                <div class="max-w-3xl mx-auto text-left bg-slate-800/50 p-6 rounded-lg mb-8 space-y-6">
+                    <div>
+                        <h2 class="text-2xl font-bold text-cyan-300 mb-3">수업 목표</h2>
+                        <p class="break-keep text-slate-300">
+                            주어진 정보(전문 지식)를 바탕으로 합리적인 의사 결정을 내리는 과정을 체험하고, 모둠원과의 토의를 통해 최선의 결과를 도출하는 협업 능력을 기릅니다.
+                        </p>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-bold text-cyan-300 mb-3">수업 활동 안내</h2>
+                        <div class="space-y-3 text-slate-300">
+                            <p class="break-keep"><b>[활동 1] 개인별 의견 마련:</b> 모둠과 이름을 입력하고 전문 분야를 선택합니다. 각자 얻은 전문 지식을 바탕으로 생존에 필요한 물품 순위를 정합니다.</p>
+                            <p class="break-keep"><b>[활동 2] 모둠별 의견 조율:</b> 모둠원들과 각자의 순위와 근거를 공유하며 토의합니다. 토의를 통해 우리 모둠의 최종 순위를 결정합니다.</p>
+                            <p class="break-keep"><b>[결과 확인]</b> 개인 순위와 모둠 순위를 해안경비대 전문가의 답과 비교하며, 더 나은 의사결정 과정을 되돌아봅니다.</p>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-yellow-300 mb-2">꼭 읽어주세요!</h3>
+                        <p class="text-slate-400 break-keep">모둠원은 각자 다른 전문 분야를 선택해야 협동의 효과가 커집니다. 자신의 의견만 고집하기보다, 다른 모둠원의 전문 지식을 존중하고 경청하며 합리적인 결정을 내려보세요.</p>
+                    </div>
+                </div>
+
+                <button id="start-class-btn" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-lg sm:text-xl py-3 px-8 rounded-lg transition-transform transform hover:scale-105">
+                    수업 시작하기
+                </button>
+
+                <div class="mt-8 border-t border-slate-700 pt-6">
+                     <p class="text-slate-400 mb-2">※ 이 활동은 모둠 수업용입니다.</p>
+                    <a href="https://gw1.kr/바다에서살아남기" class="text-sky-400 hover:text-sky-300 underline">
+                          개인 활동 버전으로 체험하기
+                    </a>
+                    <p class="text-xs text-slate-500 mt-4">made by.<a href="https://blog.naver.com/pinkylucky7" target="_blank" rel="noopener noreferrer" class="hover:underline text-sky-400">핑키네</a></p>
+                </div>
+            </div>
+
+            <!-- Screen 1: Setup Screen -->
+            <div id="setup-screen" class="screen text-center">
+                <h1 class="text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-4">승선자 정보 입력</h1>
+                 <p class="text-base sm:text-lg md:text-xl text-slate-300 mb-8 max-w-3xl mx-auto break-keep">
+                      당신의 소속과 정보를 입력해주세요.
+                 </p>
+                <div class="max-w-sm mx-auto mb-8 space-y-4">
+                    <div>
+                        <label for="groupNameInput" class="block mb-2 text-sm font-medium text-slate-300">소속을 입력하세요</label>
+                        <input type="text" id="groupNameInput" class="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block w-full p-2.5" placeholder="예) 1모둠, 푸른중학교" required>
+                    </div>
+                    <div>
+                        <label for="studentNumberInput" class="block mb-2 text-sm font-medium text-slate-300">번호를 선택하세요</label>
+                        <select id="studentNumberInput" class="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block w-full p-2.5" required>
+                            <!-- Options will be populated by JS -->
+                        </select>
+                    </div>
+                    <div>
+                        <label for="studentNameInput" class="block mb-2 text-sm font-medium text-slate-300">이름을 입력하세요</label>
+                        <input type="text" id="studentNameInput" class="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block w-full p-2.5" placeholder="예) 김선장" required>
+                    </div>
+                </div>
+                <button id="start-mission-btn" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-lg sm:text-xl py-3 px-8 rounded-lg transition-transform transform hover:scale-105">
+                    항해 시작
+                </button>
+            </div>
+            
+            <!-- Screen 1.8: Activity Guide -->
+            <div id="activity-guide-screen" class="screen text-center">
+                <h2 class="text-3xl sm:text-4xl font-bold text-white mb-8">활동 안내</h2>
+                <div class="max-w-3xl mx-auto text-left bg-slate-800/50 p-6 sm:p-8 rounded-2xl mb-10 space-y-8">
+                    <div>
+                        <h3 class="font-bold text-cyan-300 text-2xl mb-3">💯 점수 계산 방법</h3>
+                        <p class="text-slate-300 break-keep leading-relaxed">
+                            최종 점수는 해안경비대 전문가가 정한 순위와 여러분이 정한 순위의 차이를 모두 합산하여 계산됩니다.<br>
+                            (예: 전문가 1위, 내 순위 3위 → 2점 / 전문가 8위, 내 순위 2위 → 6점) (총 점수: 2+6 = 8점)<br>
+                            <span class="font-bold text-yellow-300">점수가 낮을수록 생존 확률이 높습니다!</span>
+                        </p>
+                    </div>
+                    <hr class="border-slate-700">
+                    <div>
+                        <h3 class="font-bold text-cyan-300 text-2xl mb-3">✍️ 이유 작성 안내</h3>
+                        <p class="text-slate-300 break-keep leading-relaxed">
+                            각 물품의 순위를 정한 '이유'를 작성하는 것은 여러분의 논리적인 사고 과정을 보여주는 중요한 부분입니다.<br>
+                            이 활동은 수업의 일환으로 진행되므로, <b class="text-yellow-300">자신이 왜 그렇게 생각했는지 이유를 반드시 작성해주세요.</b><br>
+                            <span class="font-bold text-slate-100">작성한 이유는 나중에 모둠원들을 설득하는 데 아주 중요한 근거가 됩니다.</span>
+                        </p>
+                    </div>
+                </div>
+                <button id="go-to-role-selection-btn" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-lg sm:text-xl py-3 px-8 rounded-lg transition-transform transform hover:scale-105">
+                    역할 선택하기
+                </button>
+            </div>
+
+            <!-- Screen 2: Role Selection -->
+            <div id="role-screen" class="screen">
+                <h2 class="text-2xl sm:text-3xl font-bold text-center mb-6">당신은 누구입니까?</h2>
+                <p class="text-center text-slate-300 mb-8 break-keep">역할을 선택하면, 해당 역할의 경험과 지식을 얻게 됩니다.</p>
+                
+                <div class="max-w-3xl mx-auto mb-8 p-4 bg-yellow-900/50 border border-yellow-700 rounded-lg text-yellow-300 text-sm break-keep">
+                    <h3 class="font-bold mb-2">▲ 역할 선택 전, 꼭 읽어주세요!</h3>
+                    <p>역할 지식은 생존에 대한 <b class="font-bold">단편적인 정보</b>일 뿐입니다. 특정 물품이 언급되었다고 해서 반드시 높은 순위인 것은 아니며, 오히려 낮은 순위일 수도 있습니다.</p>
+                    <p class="mt-1">어떤 역할을 선택하든 전문가의 정답 순위는 바뀌지 않습니다.</p>
+                </div>
+
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+                    <!-- Roles will be populated by JS -->
+                </div>
+            </div>
+            
+            <!-- Screen 3: Knowledge Briefing -->
+            <div id="knowledge-screen" class="screen">
+                <h2 class="text-2xl sm:text-3xl font-bold text-center mb-2">지식 브리핑</h2>
+                <p id="role-title" class="text-center text-amber-400 font-bold text-lg mb-6"></p>
+                <div id="knowledge-list" class="bg-slate-800 p-4 sm:p-6 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-4 text-slate-300 flex-1 overflow-y-auto">
+                    <!-- Knowledge items will be injected here by JS -->
+                </div>
+                <div class="text-center mt-8">
+                    <button id="go-to-ranking-btn" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-lg sm:text-xl py-3 px-8 rounded-lg transition-transform transform hover:scale-105">
+                        우선순위 정하기
+                    </button>
+                </div>
+            </div>
+
+            <!-- Screen 4: Main Ranking Activity (Individual) -->
+            <div id="main-screen" class="screen">
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+                    <h2 class="text-2xl sm:text-3xl font-bold text-center flex-grow">[개인] 생존 물품 우선순위 정하기</h2>
+                    <div class="flex-shrink-0 flex gap-2">
+                        <button id="open-rank-mode-modal-btn" class="w-full sm:w-auto bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                            모드 변경 ⚙️
+                        </button>
+                        <button id="open-knowledge-modal-btn" class="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                            내 정보 다시보기 🧠
+                        </button>
+                    </div>
+                </div>
+                <!-- ADDED: Tip box for individual ranking -->
+                <div class="max-w-3xl mx-auto mb-4 p-3 bg-sky-900/50 border border-sky-700 rounded-lg text-sky-300 text-sm break-keep text-center">
+                    <p>💡 <b>내 정보 활용 Tip:</b> 내 정보는 합리적인 결정을 돕는 <b>참고 자료</b>입니다. 언급된 물품이 반드시 정답은 아니므로, 종합적인 판단이 중요합니다.</p>
+                </div>
+                <div id="rank-list" class="w-full bg-slate-900 p-4 rounded-lg min-h-[55vh] space-y-3 max-h-[70vh] overflow-y-auto">
+                   <!-- Ranking slots will be generated here -->
+                </div>
+                 <div class="text-center mt-8">
+                      <button id="finish-individual-button" class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold text-lg sm:text-xl py-3 px-8 rounded-lg transition-transform transform hover:scale-105 disabled:bg-gray-500 disabled:cursor-not-allowed" disabled>
+                           개인 순위 제출하기 <span id="finish-individual-button-counter">(0/15)</span>
+                      </button>
+                 </div>
+            </div>
+
+            <!-- Screen 4.5: Discussion Guide -->
+            <div id="discussion-guide-screen" class="screen">
+                <div class="text-center">
+                    <h2 class="text-3xl sm:text-4xl font-bold text-white mb-8">🤝 성공적인 토의를 위한 자세</h2>
+                    <div class="max-w-3xl mx-auto text-left bg-slate-800/50 p-6 sm:p-8 rounded-2xl mb-10 space-y-5">
+                        <div class="flex items-start gap-4">
+                            <span class="text-2xl pt-1">👂</span>
+                            <div>
+                                <h3 class="font-bold text-cyan-300 text-xl">경청하기</h3>
+                                <p class="text-slate-300 break-keep">다른 모둠원의 의견을 끝까지 듣고 존중해주세요.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-4">
+                            <span class="text-2xl pt-1">💡</span>
+                            <div>
+                                <h3 class="font-bold text-cyan-300 text-xl">근거 제시하기</h3>
+                                <p class="text-slate-300 break-keep">자신의 주장을 내세울 때는 '왜냐하면'을 붙여 이유를 명확히 설명해주세요.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-4">
+                            <span class="text-2xl pt-1">💬</span>
+                            <div>
+                                <h3 class="font-bold text-cyan-300 text-xl">자신있게 의견 말하기</h3>
+                                <p class="text-slate-300 break-keep">조용히 듣기만 하는 것보다, 자신의 의견을 근거와 함께 자신있게 이야기하는 것도 중요해요.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-4">
+                            <span class="text-2xl pt-1">🤔</span>
+                            <div>
+                                <h3 class="font-bold text-cyan-300 text-xl">합리적 비판하기</h3>
+                                <p class="text-slate-300 break-keep">의견이 다를 때는 감정적으로 비난하지 말고, 타당한 근거를 들어 설득해보세요.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-4">
+                            <span class="text-2xl pt-1">🤝</span>
+                            <div>
+                                <h3 class="font-bold text-cyan-300 text-xl">최선의 답 찾기</h3>
+                                <p class="text-slate-300 break-keep">우리 모둠의 생존을 위해 가장 좋은 방법을 함께 찾아보세요!</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-center mt-8 flex flex-col sm:flex-row sm:justify-center gap-4">
+                        <button id="back-to-individual-ranking-btn" class="w-full sm:w-auto bg-gray-600 hover:bg-gray-700 text-white font-bold text-lg py-3 px-8 rounded-lg transition-transform transform hover:scale-105">
+                            개인 순위 수정하기
+                        </button>
+                        <button id="go-to-group-ranking-btn" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-lg sm:text-xl py-3 px-8 rounded-lg transition-transform transform hover:scale-105">
+                            모둠 토의 시작하기
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Screen 5: Group Ranking Activity -->
+            <div id="group-ranking-screen" class="screen">
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+                    <h2 class="text-2xl sm:text-3xl font-bold text-center flex-grow">[모둠] 생존 물품 우선순위 정하기</h2>
+                    <div class="flex-shrink-0 flex gap-2">
+                        <button id="view-individual-rank-btn" class="w-full sm:w-auto bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                            내 순위 보기 📋
+                        </button>
+                        <button id="open-knowledge-modal-btn-group" class="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                            내 정보 다시보기 🧠
+                        </button>
+                    </div>
+                </div>
+                <!-- ADDED: Tip box for group ranking -->
+                <div class="max-w-3xl mx-auto mb-4 p-3 bg-sky-900/50 border border-sky-700 rounded-lg text-sky-300 text-sm break-keep text-center">
+                    <p>💡 <b>토의 Tip:</b> 모둠원의 다양한 전문 지식을 종합하면 더 나은 결정을 내릴 수 있습니다. 적극적으로 의견을 나누고 최선의 순위를 함께 만들어보세요.</p>
+                </div>
+                <div class="max-w-3xl mx-auto mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex flex-wrap gap-2">
+                        <input type="file" id="group-excel-upload-input" accept=".xlsx,.xls,.xlsm" class="hidden">
+                        <button type="button" id="group-excel-upload-btn" class="bg-lime-600 hover:bg-lime-500 text-white font-semibold py-2 px-4 rounded-lg transition">
+                            엑셀에서 불러오기
+                        </button>
+                        <button type="button" id="group-excel-template-btn" class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 px-4 rounded-lg transition">
+                            양식 다운로드
+                        </button>
+                    </div>
+                    <p id="group-excel-status" class="text-xs text-slate-400 break-keep">
+                        A열에 순위(1~15), B열에 물품 이름, C열에 이유를 입력한 뒤 업로드하세요.
+                    </p>
+                </div>
+                <div id="group-rank-list" class="w-full bg-slate-900 p-4 rounded-lg min-h-[55vh] space-y-3 max-h-[70vh] overflow-y-auto">
+                    <!-- Group ranking slots will be generated here -->
+                </div>
+                 <div class="text-center mt-8">
+                      <button id="finish-group-button" class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold text-lg sm:text-xl py-3 px-8 rounded-lg transition-transform transform hover:scale-105 disabled:bg-gray-500 disabled:cursor-not-allowed" disabled>
+                           최종 보고서 만들기 <span id="finish-group-button-counter">(0/15)</span>
+                      </button>
+                 </div>
+            </div>
+
+            <!-- Screen 6: Final Report -->
+            <div id="report-screen" class="screen">
+                <div id="report-content" class="p-2">
+                    <h2 class="text-2xl sm:text-3xl font-bold text-center mb-4">바다 생존 보고서</h2>
+                    <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-center text-slate-300 mb-6">
+                        <div class="flex items-center gap-x-1.5">
+                            <span class="font-semibold text-slate-400">소속:</span>
+                            <span id="final-group-name" class="font-bold text-cyan-400"></span>
+                        </div>
+                        <div class="flex items-center gap-x-1.5">
+                            <span class="font-semibold text-slate-400">이름:</span>
+                            <span id="final-student-number" class="font-bold text-cyan-400"></span>번
+                            <span id="final-student-name" class="font-bold text-cyan-400"></span>
+                        </div>
+                        <div class="flex items-center gap-x-1.5">
+                            <span class="font-semibold text-slate-400">역할:</span>
+                            <span id="final-role" class="font-bold text-amber-400"></span>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                        <!-- Individual Report -->
+                        <div class="bg-slate-900/50 p-4 rounded-lg flex flex-col transition-all">
+                            <h3 class="text-xl font-bold text-center mb-4 text-yellow-300">나의 생존 계획</h3>
+                            <div id="individual-score-summary" class="text-center mb-4"></div>
+                            <div id="individual-final-list" class="space-y-2 flex-grow overflow-y-auto bg-slate-800 p-3 rounded-md max-h-[45vh] lg:max-h-[50vh]"></div>
+                        </div>
+                        <!-- Group Report -->
+                         <div class="bg-slate-900/50 p-4 rounded-lg flex flex-col transition-all">
+                            <h3 class="text-xl font-bold text-center mb-4 text-teal-300">우리 모둠의 생존 계획</h3>
+                            <div id="group-score-summary" class="text-center mb-4"></div>
+                            <div id="group-final-list" class="space-y-2 flex-grow overflow-y-auto bg-slate-800 p-3 rounded-md max-h-[45vh] lg:max-h-[50vh]"></div>
+                        </div>
+                    </div>
+                </div>
+                  <div class="text-center mt-6 flex flex-col sm:flex-row sm:justify-center gap-2 sm:gap-4 flex-wrap">
+                       <button id="open-save-share-modal-btn" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg py-3 px-6 rounded-lg transition-transform transform hover:scale-105">
+                            결과 저장하기
+                       </button>
+                    <a href="https://blog.naver.com/pinkylucky7/223980374740" target="_blank" rel="noopener noreferrer" class="inline-block w-full sm:w-auto bg-teal-600 hover:bg-teal-700 text-white font-bold text-lg py-3 px-6 rounded-lg transition">
+                        전문가 해설 보기
+                    </a>
+                    <button id="go-to-evaluation-btn" class="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white font-bold text-lg py-3 px-6 rounded-lg transition-transform transform hover:scale-105">
+                        상호평가 하기
+                    </button>
+                    <button id="restart-btn" class="w-full sm:w-auto bg-gray-500 hover:bg-gray-600 text-white font-bold text-lg py-3 px-6 rounded-lg transition-transform transform hover:scale-105">
+                        다시하기
+                    </button>
+                  </div>
+            </div>
+
+            <!-- Screen 7: Peer Evaluation Screen -->
+            <div id="evaluation-screen" class="screen">
+                <div class="max-w-4xl mx-auto w-full">
+                    <h2 class="text-2xl sm:text-3xl font-bold text-center mb-4">모둠 활동 상호평가</h2>
+                    <div id="evaluation-form-container" class="space-y-6 p-4 rounded-xl">
+                        <!-- Evaluator Info -->
+                        <div class="bg-slate-900/50 p-4 rounded-lg text-center">
+                            <p class="text-slate-300"><span class="font-bold text-cyan-400" id="eval-group-name"></span></p>
+                            <p class="text-lg text-white font-bold"><span id="eval-student-name"></span> (<span id="eval-role-name"></span>)</p>
+                        </div>
+                        
+                        <div class="p-3 bg-sky-900/50 border border-sky-700 rounded-lg text-sky-300 text-sm break-keep text-center">
+                             <p>💡 <b>역할 지식</b>은 토의를 시작하기 위한 참고 자료였습니다. 아래 질문에 답하며 토의 과정 전체를 되돌아보세요.</p>
+                        </div>
+
+                        <!-- Self Evaluation -->
+                        <div class="bg-slate-800/50 p-4 sm:p-6 rounded-lg">
+                            <h3 class="text-xl font-bold text-cyan-300 mb-4">♡ 나 자신 평가하기</h3>
+                            <div class="space-y-4">
+                                <fieldset>
+                                    <legend class="text-slate-300 mb-2 font-semibold">1. 나의 토의 참여도는?</legend>
+                                    <div class="flex flex-wrap gap-2" id="self-eval-q1">
+                                        <input type="radio" name="self_q1" value="4" id="s1_4"><label for="s1_4" class="eval-radio-label">매우 적극</label>
+                                        <input type="radio" name="self_q1" value="3" id="s1_3"><label for="s1_3" class="eval-radio-label">적극</label>
+                                        <input type="radio" name="self_q1" value="2" id="s1_2"><label for="s1_2" class="eval-radio-label">보통</label>
+                                        <input type="radio" name="self_q1" value="1" id="s1_1"><label for="s1_1" class="eval-radio-label">소극적</label>
+                                    </div>
+                                </fieldset>
+                                <fieldset>
+                                    <legend class="text-slate-300 mb-2 font-semibold">2. 나의 역할 지식 활용도는?</legend>
+                                    <p class="text-xs text-slate-400 mb-2">역할 정보 속에서 핵심 정보와 그렇지 않은 정보를 잘 구분하여 활용했나요?</p>
+                                    <div class="flex flex-wrap gap-2" id="self-eval-q2">
+                                        <input type="radio" name="self_q2" value="4" id="s2_4"><label for="s2_4" class="eval-radio-label">매우 잘 활용</label>
+                                        <input type="radio" name="self_q2" value="3" id="s2_3"><label for="s2_3" class="eval-radio-label">잘 활용</label>
+                                        <input type="radio" name="self_q2" value="2" id="s2_2"><label for="s2_2" class="eval-radio-label">보통</label>
+                                        <input type="radio" name="self_q2" value="1" id="s2_1"><label for="s2_1" class="eval-radio-label">잘 활용 못함</label>
+                                    </div>
+                                </fieldset>
+                                <fieldset>
+                                    <legend class="text-slate-300 mb-2 font-semibold">3. 나의 의견 표현은?</legend>
+                                    <div class="flex flex-wrap gap-2" id="self-eval-q3">
+                                        <input type="radio" name="self_q3" value="4" id="s3_4"><label for="s3_4" class="eval-radio-label">근거와 함께 명확히</label>
+                                        <input type="radio" name="self_q3" value="3" id="s3_3"><label for="s3_3" class="eval-radio-label">대체로 잘 설명</label>
+                                        <input type="radio" name="self_q3" value="2" id="s3_2"><label for="s3_2" class="eval-radio-label">보통</label>
+                                        <input type="radio" name="self_q3" value="1" id="s3_1"><label for="s3_1" class="eval-radio-label">설명 잘 못함</label>
+                                    </div>
+                                </fieldset>
+                                <fieldset>
+                                    <legend class="text-slate-300 mb-2 font-semibold">4. 친구 의견 듣기 태도는?</legend>
+                                    <div class="flex flex-wrap gap-2" id="self-eval-q4">
+                                        <input type="radio" name="self_q4" value="4" id="s4_4"><label for="s4_4" class="eval-radio-label">매우 잘 들음</label>
+                                        <input type="radio" name="self_q4" value="3" id="s4_3"><label for="s4_3" class="eval-radio-label">잘 들음</label>
+                                        <input type="radio" name="self_q4" value="2" id="s4_2"><label for="s4_2" class="eval-radio-label">보통</label>
+                                        <input type="radio" name="self_q4" value="1" id="s4_1"><label for="s4_1" class="eval-radio-label">잘 듣지 않음</label>
+                                    </div>
+                                </fieldset>
+                            </div>
+                        </div>
+
+                        <!-- Peer Evaluation -->
+                        <div class="bg-slate-800/50 p-4 sm:p-6 rounded-lg">
+                            <h3 class="text-xl font-bold text-yellow-300 mb-4">🤝 우리 모둠원 평가하기</h3>
+                            <div id="peer-evaluation-container" class="space-y-6">
+                                <!-- Peer cards will be inserted here by JS -->
+                            </div>
+                            <div class="mt-6 text-center">
+                                <button id="add-peer-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-transform transform hover:scale-105">
+                                    + 모둠원 추가
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Most Impressive Peer -->
+                        <div class="bg-slate-800/50 p-4 sm:p-6 rounded-lg">
+                            <h3 class="text-xl font-bold text-teal-300 mb-4">🏆 가장 인상깊었던 모둠원</h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <label for="mvp-name" class="block text-slate-300 mb-2 font-semibold">이름:</label>
+                                    <input type="text" id="mvp-name" class="bg-slate-700 border border-slate-600 text-white text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5" placeholder="모둠원의 이름을 적어주세요">
+                                </div>
+                                <fieldset>
+                                    <legend class="text-slate-300 mb-2 font-semibold">선택한 이유 (모두 선택 가능):</legend>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <input type="checkbox" name="mvp_reason" value="역할 지식 활용" id="mvp_r1"><label for="mvp_r1" class="eval-checkbox-label">역할 지식을 토의에 잘 활용함</label>
+                                        <input type="checkbox" name="mvp_reason" value="의견 명확" id="mvp_r2"><label for="mvp_r2" class="eval-checkbox-label">의견을 가장 명확하게 설명함</label>
+                                        <input type="checkbox" name="mvp_reason" value="경청" id="mvp_r3"><label for="mvp_r3" class="eval-checkbox-label">친구들 의견을 가장 잘 들어줌</label>
+                                        <input type="checkbox" name="mvp_reason" value="리더십" id="mvp_r4"><label for="mvp_r4" class="eval-checkbox-label">토의를 이끌어나가는 데 도움됨</label>
+                                    </div>
+                                </fieldset>
+                                 <div>
+                                    <label for="mvp-reason-other" class="block text-slate-300 mb-2 font-semibold">다른 이유:</label>
+                                    <textarea id="mvp-reason-other" rows="2" class="bg-slate-700 border border-slate-600 text-white text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5" placeholder="다른 이유가 있다면 적어주세요"></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Reflection -->
+                        <div class="bg-slate-800/50 p-4 sm:p-6 rounded-lg">
+                             <h3 class="text-xl font-bold text-purple-300 mb-4">📝 활동 소감</h3>
+                             <div class="space-y-4">
+                                  <div>
+                                     <label for="reflection-good" class="block text-slate-300 mb-2 font-semibold">오늘 활동에서 가장 좋았던 점은?</label>
+                                     <textarea id="reflection-good" rows="3" class="bg-slate-700 border border-slate-600 text-white text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5"></textarea>
+                                  </div>
+                                  <div>
+                                     <label for="reflection-felt" class="block text-slate-300 mb-2 font-semibold">친구들과 함께 활동하면서 느낀 점은?</label>
+                                     <textarea id="reflection-felt" rows="3" class="bg-slate-700 border border-slate-600 text-white text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5"></textarea>
+                                  </div>
+                                  <div>
+                                     <label for="reflection-improve" class="block text-slate-300 mb-2 font-semibold">다음에 더 잘하고 싶은 점은?</label>
+                                     <textarea id="reflection-improve" rows="3" class="bg-slate-700 border border-slate-600 text-white text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5"></textarea>
+                                  </div>
+                             </div>
+                        </div>
+                    </div>
+                    <div class="text-center mt-8 flex flex-col sm:flex-row sm:justify-center gap-4">
+                        <button id="back-to-report-btn" class="w-full sm:w-auto bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-8 rounded-lg">보고서로 돌아가기</button>
+                        <button id="save-evaluation-btn" class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg">이미지로 평가 저장하기</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    
+    <!-- Screen 1.5: Emergency Sequence -->
+    <div id="emergency-screen" class="flex flex-col items-center justify-center p-8">
+        <div id="emergency-message-container" class="text-white text-xl sm:text-2xl md:text-3xl font-bold text-center space-y-6">
+            <!-- Messages will be injected here -->
+        </div>
+        <button id="skip-emergency-btn" class="absolute top-5 right-5 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg z-10">SKIP</button>
+        <button id="proceed-to-guide-btn" class="mt-8 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-6 rounded-lg hidden transition-opacity animate-pulse">
+            활동 안내 확인하기
+        </button>
+    </div>
+
+    <!-- Modals and Global Buttons -->
+    <div id="global-buttons" class="fixed flex justify-between items-center z-50 pointer-events-none" style="bottom: calc(1.25rem + env(safe-area-inset-bottom)); left: calc(1.25rem + env(safe-area-inset-left)); right: calc(1.25rem + env(safe-area-inset-right));">
+        <button id="back-to-start-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-full shadow-lg transition-transform hover:scale-105 hidden pointer-events-auto">처음으로</button>
+        <button id="exit-app-btn" class="bg-red-800 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-full shadow-lg transition-transform hover:scale-105 hidden pointer-events-auto ml-auto">종료</button>
+    </div>
+    
+    <!-- Item Info Modal -->
+    <div id="item-info-modal" class="modal-base">
+        <div class="modal-content bg-slate-900 rounded-lg border border-slate-700">
+            <span class="close-modal-btn absolute top-4 right-5 text-3xl font-bold cursor-pointer hover:text-red-500">&times;</span>
+            <div id="item-info-modal-body" class="text-white"></div>
+        </div>
+    </div>
+    
+    <!-- Item Selection Modal -->
+    <div id="item-selection-modal" class="modal-base">
+        <div class="modal-content bg-slate-900 rounded-lg border border-slate-700">
+             <span class="close-modal-btn absolute top-4 right-5 text-3xl font-bold cursor-pointer hover:text-red-500">&times;</span>
+            <h3 class="text-2xl font-bold mb-4 text-center text-emerald-400">사용 가능한 물품 선택</h3>
+            <div id="item-selection-modal-body" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto p-2"></div>
+        </div>
+    </div>
+
+    <!-- Save/Share Modal -->
+    <div id="save-share-modal" class="modal-base">
+        <div class="modal-content bg-slate-900 rounded-lg border border-slate-700 text-center">
+            <span class="close-modal-btn absolute top-4 right-5 text-3xl font-bold cursor-pointer hover:text-red-500">&times;</span>
+            <h3 class="text-2xl font-bold mb-6 text-emerald-400">결과 저장 및 공유</h3>
+            <div class="flex flex-col gap-4">
+                <button id="save-image-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-all">🖼️ 이미지로 저장</button>
+                <button id="save-excel-btn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-lg transition-all">📊 엑셀로 저장</button>
+                <button id="share-image-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition-all">🔗 공유하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Knowledge Modal -->
+    <div id="knowledge-modal" class="modal-base">
+        <div class="modal-content bg-slate-900 rounded-lg border border-slate-700">
+            <span class="close-modal-btn absolute top-4 right-5 text-3xl font-bold cursor-pointer hover:text-red-500">&times;</span>
+            <div id="knowledge-modal-body" class="text-white"></div>
+        </div>
+    </div>
+
+    <!-- General Alert/Confirm Modal -->
+    <div id="alert-confirm-modal" class="modal-base">
+        <div class="modal-content bg-slate-900 rounded-lg border border-slate-700 text-center max-w-md">
+            <h3 id="alert-confirm-title" class="text-xl font-bold mb-4 text-yellow-300"></h3>
+            <p id="alert-confirm-message" class="text-slate-300 mb-6 whitespace-pre-wrap"></p>
+            <div id="alert-confirm-buttons" class="flex justify-center gap-4"></div>
+        </div>
+    </div>
+    
+    <!-- Ranking Mode Modal -->
+    <div id="rank-mode-modal" class="modal-base">
+        <div class="modal-content bg-slate-900 rounded-lg border border-slate-700 text-center">
+            <span class="close-modal-btn absolute top-4 right-5 text-3xl font-bold cursor-pointer hover:text-red-500">&times;</span>
+            <h3 class="text-2xl font-bold mb-6 text-emerald-400">개인 랭킹 모드 선택</h3>
+            <p class="text-slate-400 mb-6 break-keep">시간이 부족할 경우, 중요한 물품만 순위를 정하는 간소화된 모드를 선택할 수 있습니다.<br>(모둠 랭킹은 15개 전체 순위를 정해야 합니다.)</p>
+            <div class="flex flex-col gap-4">
+                <button data-mode="15" class="rank-mode-select-btn w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-all">
+                    👑 15개 전체 순위 선택
+                </button>
+                <button data-mode="10" class="rank-mode-select-btn w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition-all">
+                    ⚡️ 상위 10개 순위 선택
+                </button>
+                <button data-mode="5" class="rank-mode-select-btn w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-3 px-6 rounded-lg transition-all">
+                    🚀 상위 5개 순위 선택
+                </button>
+                <hr class="border-slate-700">
+                <button data-mode="5-5" class="rank-mode-select-btn w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg transition-all">
+                    🎯 상위 5개 & 하위 5개 선택
+                </button>
+                <button data-mode="3-3" class="rank-mode-select-btn w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg transition-all">
+                    ⚡️ 상위 3개 & 하위 3개 선택
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Individual Rank View Modal -->
+    <div id="individual-rank-view-modal" class="modal-base">
+        <div class="modal-content bg-slate-900 rounded-lg border border-slate-700">
+            <span class="close-modal-btn absolute top-4 right-5 text-3xl font-bold cursor-pointer hover:text-red-500">&times;</span>
+            <h3 class="text-2xl font-bold mb-4 text-center text-yellow-300">나의 생존 계획 (개인 순위)</h3>
+            <div id="individual-rank-view-body" class="max-h-[60vh] overflow-y-auto p-2 space-y-2">
+                <!-- Content will be injected by JS -->
+            </div>
+        </div>
+    </div>
+
+    <audio id="bg-music" loop></audio>
+
+    <!-- Role Understanding Modal -->
+    <div id="role-understanding-modal" class="modal fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 hidden">
+        <div class="modal-content bg-slate-800 text-slate-100 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="border-b border-slate-600 pb-4 mb-4">
+                <h3 class="text-2xl font-bold text-cyan-400">🎯 역할 이해도 확인</h3>
+                <p class="text-slate-300 mt-2">아래 설명 중 <span class="text-emerald-400 font-bold">올바른 것</span>을 모두 선택하세요:</p>
+            </div>
+
+            <div class="space-y-3 mb-6">
+                <label class="block p-3 bg-slate-700 rounded-lg cursor-pointer hover:bg-slate-600 transition-colors">
+                    <input type="checkbox" class="understanding-check mr-3" data-correct="false">
+                    <span>내가 선택한 역할에 따라 특정 물품의 정답 순위가 바뀐다</span>
+                </label>
+
+                <label class="block p-3 bg-slate-700 rounded-lg cursor-pointer hover:bg-slate-600 transition-colors">
+                    <input type="checkbox" class="understanding-check mr-3" data-correct="true">
+                    <span>해안경비대 전문가들의 정답은 역할과 관계없이 항상 동일하다</span>
+                </label>
+
+                <label class="block p-3 bg-slate-700 rounded-lg cursor-pointer hover:bg-slate-600 transition-colors">
+                    <input type="checkbox" class="understanding-check mr-3" data-correct="false">
+                    <span>역할 지식을 보면 정답을 쉽게 알 수 있다</span>
+                </label>
+
+                <label class="block p-3 bg-slate-700 rounded-lg cursor-pointer hover:bg-slate-600 transition-colors">
+                    <input type="checkbox" class="understanding-check mr-3" data-correct="true">
+                    <span>역할은 단지 다양한 관점을 제공할 뿐이다</span>
+                </label>
+            </div>
+
+            <div class="border-t border-slate-600 pt-4">
+                <div id="understanding-feedback" class="mb-4">
+                    <p class="text-slate-400 text-sm">정답 선택: <span id="correct-count">0</span>/2</p>
+                </div>
+                <button id="check-understanding-btn" class="bg-gray-500 text-white font-bold py-2 px-8 rounded-lg cursor-not-allowed" disabled>
+                    다시 확인해주세요
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        // --- App State and Data ---
+        const SAVE_KEY = 'sea-survival-team-v1.4'; // Version bump for new features
+        const APP_VERSION = 'sea-team-1.4';
+
+        let emergencySequenceTimeoutId = null;
+        let activeSelectionContext = { type: null, slotIndex: null };
+        
+        const appData = {
+            getEmergencyMessages: (state) => [
+                "경고. 경고. 선체 화재 발생.",
+                "항해 장비 및 통신 장비 파손 확인.",
+                "요트가 서서히 침몰하고 있다.",
+                `'${state.groupName || '생존자 그룹'}', 응답하라!`,
+                "가장 가까운 육지까지는 약 1,600km.",
+                `'${state.studentName || '생존자'}', 당신의 판단에 모두의 생존이 달려있다.`,
+                "15개 비상 물품의 생존 순위를 정하라.",
+                "반드시... 반드시 살아남아라!"
+            ],
+            roles: {
+                influencer: { name: '💅 SNS 인플루언서', imageUrl: 'https://i.imgur.com/8QGZf1g.png', description: "어떤 상황에서도 '좋아요'를 부르는 감각을 가졌습니다.", info: [ "반짝이는 물건으로 햇빛을 반사시키면, 아주 멀리 있는 사람의 시선도 사로잡을 수 있다.", "탈수는 피부 노화의 지름길이다.", "단 음식은 우울한 기분을 잠시나마 달래주는 효과가 있다.", "강한 햇볕을 직접 쬐는 것은 탈수를 가속시키므로, 그늘을 만들어 몸을 보호하는 것이 중요하다.", "어떤 상황에서든 '스토리'가 있는 아이템이 주목받는다.", "요즘은 바다 한가운데서도 라이브 방송을 하는 게 트렌드다." ] },
+                trainer: { name: '💪 헬스 트레이너', imageUrl: 'https://i.imgur.com/eB3t9fB.png', description: "인체의 한계와 신체 능력 유지에 대한 지식이 있습니다.", info: [ "알코올은 피부 근처의 혈관을 확장시켜, 몸의 열을 바깥으로 더 빨리 빠져나가게 만든다.", "몸이 젖어 있으면, 마른 상태일 때보다 체온이 20배 이상 빠르게 떨어질 수 있다.", "가만히 있어도 우리 몸의 수분은 계속해서 빠져나간다.", "설탕은 에너지를 빨리 내게 하지만, 효과가 오래가지는 않는다.", "상처가 바닷물에 노출되면 감염 위험이 매우 크다.", "장기간의 수영은 심폐지구력 향상에 최고의 운동이다." ] },
+                angler: { name: '🎣 낚시광', imageUrl: 'https://i.imgur.com/dK8x9p2.png', description: "바다와 물고기에 대한 풍부한 실전 경험을 가졌습니다.", info: [ "아주 작은 물고기라도 잡을 수 있다면, 그것을 미끼로 사용해 더 큰 고기를 노려볼 수 있다.", "바다에 강한 냄새를 풍기면, 멀리 있는 물고기들을 주변으로 유인하는 효과가 있다.", "대부분의 어류 체액은 바닷물보다 염도가 낮다.", "상어는 피 냄새뿐만 아니라, 물속의 부자연스러운 진동에도 매우 민감하게 반응한다.", "바다에서는 작은 부유물이라도 주변에 물고기들이 모여들기 마련이다.", "전설적인 '청새치'는 자동차보다도 빠르게 헤엄칠 수 있다." ] },
+                diy: { name: '🛠️ DIY 취미가', imageUrl: 'https://i.imgur.com/aJ3y7xX.png', description: "주어진 도구로 무엇이든 만들어내는 손재주가 있습니다.", info: [ "렌즈를 이용해 햇빛을 한 점으로 모으면, 그 지점은 종이를 태울 만큼 뜨거워질 수 있다.", "간단한 전자제품을 분해하면, 낚싯바늘이나 작은 도구로 쓸만한 예상치 못한 부품을 얻을 수 있다.", "나일론 같은 합성 밧줄은 열을 가하면 녹는 성질이 있어, 올이 풀리는 것을 막는 데 쓸 수 있다.", "대부분의 플라스틱과 기름은 물보다 밀도가 낮다.", "모든 재료는 분해하고 다시 조립할 수 있다.", "잘 만든 연은 1,000미터 이상까지도 날릴 수 있다." ] }
+            },
+            items: [
+                { id: 1, name: '항해용 각도기', uscgRank: 15, icon: '🧭', description: '별의 각도를 재어 위치를 계산하는 항해용 전문 도구입니다.' },
+                { id: 2, name: '면도용 거울', uscgRank: 1, icon: '🪞', description: '자신의 모습을 비춰볼 수 있는 작은 손거울입니다.' },
+                { id: 3, name: '20리터 물통', uscgRank: 3, icon: '💧', description: '마실 수 있는 깨끗한 물이 20리터 담긴 통입니다.' },
+                { id: 4, name: '모기장', uscgRank: 14, icon: '🕸️', description: '모기를 막기 위한 촘촘한 그물입니다.' },
+                { id: 5, name: '비상식량 한 박스', uscgRank: 4, icon: '🥫', description: '장기간 보관이 가능한 비상 식량입니다.' },
+                { id: 6, name: '남태평양 해도', uscgRank: 13, icon: '🗺️', description: '남태평양의 수심, 해류 등이 표시된 바다 지도입니다.' },
+                { id: 7, name: '좌석용 부유 쿠션', uscgRank: 9, icon: '🛟', description: '물에 뜨는 재질로 만들어진 좌석 쿠션입니다.' },
+                { id: 8, name: '10리터 기름통', uscgRank: 2, icon: '⛽', description: '기름과 오일이 섞여 있는 금속 용기입니다.' },
+                { id: 9, name: '소형 라디오', uscgRank: 12, icon: '📻', description: '주파수를 맞춰 방송을 들을 수 있는 소형 트랜지스터 라디오입니다.' },
+                { id: 10, name: '상어 퇴치제', uscgRank: 10, icon: '🦈', description: '상어가 싫어하는 화학 물질이 담긴 통입니다.' },
+                { id: 11, name: '불투명 비닐 시트', uscgRank: 5, icon: '⬛', description: '20제곱미터 크기의 크고 질긴 불투명 비닐입니다.' },
+                { id: 12, name: '럼주 한 병', uscgRank: 11, icon: '🍾', description: '알코올 도수 40도의 럼주가 담긴 병입니다.' },
+                { id: 13, name: '15m 나일론 밧줄', uscgRank: 8, icon: '🧶', description: '길고 튼튼한 나일론 소재의 밧줄입니다.' },
+                { id: 14, name: '초콜릿 두 상자', uscgRank: 6, icon: '🍫', description: '간식으로 먹을 수 있는 초콜릿입니다.' },
+                { id: 15, name: '낚시 도구 세트', uscgRank: 7, icon: '🎣', description: '낚싯대, 릴, 낚싯줄, 미끼 등이 포함된 세트입니다.' }
+            ],
+            state: {}
+        };
+
+        const dom = {
+            appWrapper: document.getElementById('app-wrapper'),
+            appContainer: document.getElementById('app-container'),
+            rankListEl: document.getElementById('rank-list'),
+            groupRankListEl: document.getElementById('group-rank-list'),
+            itemInfoModalEl: document.getElementById('item-info-modal'),
+            itemInfoModalBodyEl: document.getElementById('item-info-modal-body'),
+            itemSelectionModalEl: document.getElementById('item-selection-modal'),
+            itemSelectionModalBodyEl: document.getElementById('item-selection-modal-body'),
+            saveShareModalEl: document.getElementById('save-share-modal'),
+            knowledgeModalEl: document.getElementById('knowledge-modal'),
+            knowledgeModalBodyEl: document.getElementById('knowledge-modal-body'),
+            alertConfirmModalEl: document.getElementById('alert-confirm-modal'),
+            alertConfirmTitle: document.getElementById('alert-confirm-title'),
+            alertConfirmMessage: document.getElementById('alert-confirm-message'),
+            alertConfirmButtons: document.getElementById('alert-confirm-buttons'),
+            rankModeModalEl: document.getElementById('rank-mode-modal'), 
+            emergencyScreen: document.getElementById('emergency-screen'),
+            emergencyMessageContainer: document.getElementById('emergency-message-container'),
+            proceedToGuideBtn: document.getElementById('proceed-to-guide-btn'),
+            skipEmergencyBtn: document.getElementById('skip-emergency-btn'),
+            groupNameInput: document.getElementById('groupNameInput'),
+            studentNumberInput: document.getElementById('studentNumberInput'),
+            studentNameInput: document.getElementById('studentNameInput'),
+            roleTitle: document.getElementById('role-title'),
+            knowledgeList: document.getElementById('knowledge-list'),
+            groupExcelUploadInput: document.getElementById('group-excel-upload-input'),
+            groupExcelStatus: document.getElementById('group-excel-status'),
+            finishIndividualButton: document.getElementById('finish-individual-button'),
+            finishIndividualButtonCounter: document.getElementById('finish-individual-button-counter'),
+            finishGroupButton: document.getElementById('finish-group-button'),
+            finishGroupButtonCounter: document.getElementById('finish-group-button-counter'),
+            finalGroupName: document.getElementById('final-group-name'),
+            finalStudentNumber: document.getElementById('final-student-number'),
+            finalStudentName: document.getElementById('final-student-name'),
+            finalRole: document.getElementById('final-role'),
+            individualScoreSummary: document.getElementById('individual-score-summary'),
+            groupScoreSummary: document.getElementById('group-score-summary'),
+            individualFinalList: document.getElementById('individual-final-list'),
+            groupFinalList: document.getElementById('group-final-list'),
+            backToStartBtn: document.getElementById('back-to-start-btn'),
+            exitAppBtn: document.getElementById('exit-app-btn'),
+            fullscreenBtn: document.getElementById('fullscreen-btn'),
+            fsEnterIcon: document.getElementById('fs-enter-icon'),
+            fsExitIcon: document.getElementById('fs-exit-icon'),
+            bgMusic: document.getElementById('bg-music'),
+            // Evaluation Screen elements
+            evaluationScreen: document.getElementById('evaluation-screen'),
+            evaluationFormContainer: document.getElementById('evaluation-form-container'),
+            peerEvaluationContainer: document.getElementById('peer-evaluation-container'),
+            evalGroupName: document.getElementById('eval-group-name'),
+            evalStudentName: document.getElementById('eval-student-name'),
+            evalRoleName: document.getElementById('eval-role-name'),
+            // New elements
+            individualRankViewModal: document.getElementById('individual-rank-view-modal'),
+            individualRankViewBody: document.getElementById('individual-rank-view-body'),
+        };
+        
+        // --- All Functions Defined Here ---
+        const saveState = () => {
+            try {
+                // Always save the current state regardless of the screen
+                // This makes the 'continue' feature more robust
+                if (appData.state && appData.state.currentScreen) {
+                    localStorage.setItem(SAVE_KEY, JSON.stringify({ ...appData.state, version: APP_VERSION }));
+                }
+            } catch (e) { console.error("저장 중 오류:", e); }
+        };
+
+        const autoSave = () => saveState();
+        
+        const getNewState = () => ({
+            currentScreen: 'welcome-screen',
+            groupName: '', studentName: '', studentNumber: '',
+            selectedRole: null,
+            individualRankMode: '15', 
+            rankedItems: Array(15).fill(null),
+            groupRankedItems: Array(15).fill(null),
+            peerEvaluations: [],
+            evaluationData: null,
+        });
+        
+        const parseRankMode = (mode) => {
+            if (typeof mode === 'number') mode = String(mode);
+            if (!mode) mode = '15'; // Fallback
+            if (mode.includes('-')) {
+                const [top, bottom] = mode.split('-').map(Number);
+                return { type: 'top-bottom', top, bottom, total: top + bottom };
+            } else {
+                const top = Number(mode);
+                return { type: 'top', top, total: top };
+            }
+        };
+
+        // Role Understanding Modal Function
+        const openRoleUnderstandingModal = () => {
+            const modal = document.getElementById('role-understanding-modal');
+            if (!modal) {
+                console.error('Role understanding modal not found');
+                proceedToKnowledgeScreen();
+                return;
+            }
+            const checkboxes = modal.querySelectorAll('.understanding-check');
+            const checkBtn = document.getElementById('check-understanding-btn');
+            const feedback = document.getElementById('understanding-feedback');
+            const correctCountEl = document.getElementById('correct-count');
+
+            // Reset UI
+            checkboxes.forEach(cb => {
+                cb.checked = false;
+                cb.parentElement.classList.remove('bg-red-800/60', 'border-red-500', 'bg-green-800/60', 'border-green-500', 'border-2');
+            });
+            checkBtn.textContent = '다시 확인해주세요';
+            checkBtn.className = 'bg-gray-500 text-white font-bold py-2 px-8 rounded-lg cursor-not-allowed';
+            checkBtn.disabled = true;
+
+            const updateCounter = () => {
+                const correctAnswers = Array.from(checkboxes).filter(cb => cb.dataset.correct === 'true');
+                const selectedCorrectAnswers = correctAnswers.filter(cb => cb.checked).length;
+                const selectedIncorrectAnswers = Array.from(checkboxes).filter(cb => cb.dataset.correct === 'false' && cb.checked).length;
+                
+                correctCountEl.textContent = selectedCorrectAnswers;
+                
+                if (selectedCorrectAnswers === 2 && selectedIncorrectAnswers === 0) {
+                    checkBtn.textContent = '이해했습니다! ✅';
+                    checkBtn.className = 'bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-8 rounded-lg transition-all transform hover:scale-105';
+                    checkBtn.disabled = false;
+                    feedback.innerHTML = '<p class="text-green-400 font-bold">🎉 완벽하게 이해하셨습니다!</p>';
+                } else {
+                    checkBtn.textContent = '다시 확인해주세요';
+                    checkBtn.className = 'bg-gray-500 text-white font-bold py-2 px-8 rounded-lg cursor-not-allowed';
+                    checkBtn.disabled = true;
+                    feedback.innerHTML = `<p class="text-slate-400 text-sm">정답 선택: <span id="correct-count">${selectedCorrectAnswers}</span>/2</p>`;
+                }
+            };
+
+            checkboxes.forEach(cb => {
+                cb.addEventListener('change', () => {
+                    const isCorrect = cb.dataset.correct === 'true';
+                    const parentLabel = cb.parentElement;
+                    parentLabel.classList.remove('bg-red-800/60', 'border-red-500', 'bg-green-800/60', 'border-green-500', 'border-2');
+                    
+                    if (cb.checked) {
+                        if (isCorrect) {
+                            parentLabel.classList.add('bg-green-800/60', 'border-green-500', 'border-2');
+                        } else {
+                            parentLabel.classList.add('bg-red-800/60', 'border-red-500', 'border-2');
+                        }
+                    }
+                    updateCounter();
+                });
+            });
+
+            updateCounter();
+            openModal(modal);
+        };
+
+        const showScreen = (screenId) => {
+            if (screenId !== 'emergency-screen') {
+                stopMusicAndClear();
+            }
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active-screen'));
+            dom.emergencyScreen.style.display = 'none';
+
+            const activeScreen = document.getElementById(screenId);
+            if (screenId === 'emergency-screen') {
+                dom.emergencyScreen.style.display = 'flex';
+                [dom.backToStartBtn, dom.exitAppBtn].forEach(btn => btn.classList.add('hidden'));
+            } else if (activeScreen) {
+                activeScreen.classList.add('active-screen');
+                const isIntro = ['welcome-screen', 'setup-screen'].includes(screenId);
+                [dom.backToStartBtn, dom.exitAppBtn].forEach(btn => btn.classList.toggle('hidden', isIntro));
+            }
+            
+            // Scroll to top on screen change
+            dom.appWrapper.scrollTop = 0;
+            if (activeScreen) {
+                const scrollableChild = activeScreen.querySelector('.overflow-y-auto');
+                if (scrollableChild) {
+                    scrollableChild.scrollTop = 0;
+                }
+            }
+            
+            appData.state.currentScreen = screenId;
+            saveState(); // Save state on every screen change
+        };
+
+        const restartApp = () => {
+            localStorage.removeItem(SAVE_KEY);
+            window.location.reload();
+        };
+        
+        const openModal = (modalEl) => {
+            modalEl.classList.remove('hidden');
+            setTimeout(() => modalEl.classList.add('show'), 10);
+        };
+        const closeModal = (modalEl) => {
+            modalEl.classList.remove('show');
+            if (modalEl.classList.contains('modal')) {
+                 setTimeout(() => modalEl.classList.add('hidden'), 200);
+            }
+        };
+
+        const showAlert = (message, title = '알림') => {
+            dom.alertConfirmTitle.textContent = title;
+            dom.alertConfirmMessage.textContent = message;
+            dom.alertConfirmButtons.innerHTML = `<button class="modal-ok-btn bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg">확인</button>`;
+            openModal(dom.alertConfirmModalEl);
+        };
+
+        const showConfirm = (message, onConfirm, title = '확인', options = {}) => {
+            const {
+                onCancel = () => {},
+                okText = '확인',
+                cancelText = '취소',
+                okClass = 'bg-red-600 hover:bg-red-700',
+                cancelClass = 'bg-gray-500 hover:bg-gray-600'
+            } = options;
+
+            dom.alertConfirmTitle.textContent = title;
+            dom.alertConfirmMessage.textContent = message;
+            
+            const cancelBtnHTML = cancelText ? `<button class="modal-cancel-btn ${cancelClass} text-white font-bold py-2 px-6 rounded-lg">${cancelText}</button>` : '';
+            dom.alertConfirmButtons.innerHTML = `
+                ${cancelBtnHTML}
+                <button class="modal-ok-btn ${okClass} text-white font-bold py-2 px-6 rounded-lg">${okText}</button>
+            `;
+            openModal(dom.alertConfirmModalEl);
+            
+            dom.alertConfirmModalEl.querySelector('.modal-ok-btn').onclick = () => { closeModal(dom.alertConfirmModalEl); onConfirm(); };
+            if (cancelText) {
+                dom.alertConfirmModalEl.querySelector('.modal-cancel-btn').onclick = () => { closeModal(dom.alertConfirmModalEl); onCancel(); };
+            }
+        };
+
+        const updateFullscreenIcons = () => {
+            if (document.fullscreenElement) {
+                dom.fsEnterIcon.classList.add('hidden');
+                dom.fsExitIcon.classList.remove('hidden');
+            } else {
+                dom.fsEnterIcon.classList.remove('hidden');
+                dom.fsExitIcon.classList.add('hidden');
+            }
+        };
+
+        const toggleFullScreen = () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    showAlert(`전체화면 모드를 시작할 수 없습니다: ${err.message}`);
+                });
+            } else if (document.exitFullscreen) {
+                document.exitFullscreen();
+            }
+        };
+
+        const startMission = () => {
+            appData.state.groupName = dom.groupNameInput.value.trim();
+            appData.state.studentName = dom.studentNameInput.value.trim();
+            appData.state.studentNumber = dom.studentNumberInput.value;
+            if (!appData.state.groupName || !appData.state.studentName || !appData.state.studentNumber) {
+                showAlert('소속, 번호, 이름을 모두 입력/선택해주세요!');
+                return;
+            }
+            saveState();
+            showEmergencySequence();
+        };
+        
+        const showEmergencySequence = () => {
+            showScreen('emergency-screen');
+            if (dom.bgMusic) {
+                dom.bgMusic.src = 'https://cdn.pixabay.com/download/audio/2023/05/18/audio_84842a2792.mp3';
+                dom.bgMusic.play().catch(e => console.log("음악 자동 재생이 차단되었습니다.", e));
+            }
+            dom.emergencyMessageContainer.innerHTML = '';
+            dom.proceedToGuideBtn.classList.add('hidden');
+            dom.skipEmergencyBtn.classList.remove('hidden');
+
+            let messageIndex = 0;
+            const messages = appData.getEmergencyMessages(appData.state);
+            const showNextMessage = () => {
+                if (emergencySequenceTimeoutId) clearTimeout(emergencySequenceTimeoutId);
+                if (messageIndex >= messages.length) {
+                    dom.skipEmergencyBtn.classList.add('hidden');
+                    dom.proceedToGuideBtn.classList.remove('hidden');
+                    return;
+                }
+                const p = document.createElement('p');
+                p.className = 'break-keep';
+                p.textContent = messages[messageIndex];
+                dom.emergencyMessageContainer.appendChild(p);
+                messageIndex++;
+                emergencySequenceTimeoutId = setTimeout(showNextMessage, 2200);
+            };
+            showNextMessage();
+        };
+        
+        const stopMusicAndClear = () => {
+            if (dom.bgMusic) {
+                dom.bgMusic.pause();
+                dom.bgMusic.currentTime = 0;
+                dom.bgMusic.src = '';
+            }
+        };
+
+        const skipEmergencySequence = () => {
+            if (emergencySequenceTimeoutId) clearTimeout(emergencySequenceTimeoutId);
+            const messages = appData.getEmergencyMessages(appData.state);
+            dom.emergencyMessageContainer.innerHTML = messages
+                .map(msg => `<p style="animation: none; opacity: 1;" class="break-keep">${msg}</p>`).join('');
+            dom.skipEmergencyBtn.classList.add('hidden');
+            dom.proceedToGuideBtn.classList.remove('hidden');
+        };
+
+        const selectRole = (roleId) => {
+            appData.state.selectedRole = roleId;
+            autoSave(); // Save role selection immediately
+            openRoleUnderstandingModal();
+        };
+
+        const proceedToKnowledgeScreen = () => {
+            const roleId = appData.state.selectedRole;
+            const role = appData.roles[roleId];
+            dom.roleTitle.innerText = `[${role.name}]`;
+            const roleInfoList = role.info.map(fact => `<div class="bg-slate-700 p-3 rounded break-keep">- ${fact}</div>`).join('');
+            const itemsList = appData.items.map(item => `
+                <div class="bg-slate-700 p-3 rounded">
+                    <p class="font-bold">${item.icon} ${item.name}</p>
+                    <p class="text-sm text-slate-400 mt-1 break-keep">${item.description}</p>
+                </div>`).join('');
+            const knowledgeScreenWarning = `<div class="mb-4 p-3 bg-yellow-900/50 border border-yellow-700 rounded-lg text-yellow-300 text-xs text-center break-keep md:col-span-2"><p><b>▲ 중요:</b> 역할 지식은 생존에 대한 <b>단편적인 정보</b>일 뿐이며, 특정 물품의 높은 우선순위를 암시하는 것이 아닙니다. 전체 상황을 고려하여 판단하세요.</p></div>`;
+            dom.knowledgeList.innerHTML = `${knowledgeScreenWarning}<h4 class="text-lg font-bold text-amber-300 md:col-span-2">🧠 나의 정보</h4>${roleInfoList}<hr class="border-slate-600 my-2 md:col-span-2"><h4 class="text-lg font-bold text-cyan-300 md:col-span-2">🎒 전체 물품 정보</h4>${itemsList}`;
+            showScreen('knowledge-screen');
+        };
+        
+        const updateFinishButtonState = (type) => {
+            const rankedItems = type === 'individual' ? appData.state.rankedItems : appData.state.groupRankedItems;
+            const button = type === 'individual' ? dom.finishIndividualButton : dom.finishGroupButton;
+            const counter = type === 'individual' ? dom.finishIndividualButtonCounter : dom.finishGroupButtonCounter;
+            
+            const modeStr = type === 'individual' ? appData.state.individualRankMode : '15';
+            const parsedMode = parseRankMode(modeStr);
+            
+            let itemCount = 0;
+            if (parsedMode.type === 'top') {
+                itemCount = rankedItems.slice(0, parsedMode.top).filter(Boolean).length;
+            } else if (parsedMode.type === 'top-bottom') {
+                const topItems = rankedItems.slice(0, parsedMode.top).filter(Boolean).length;
+                const bottomItems = rankedItems.slice(15 - parsedMode.bottom).filter(Boolean).length;
+                itemCount = topItems + bottomItems;
+            }
+
+            counter.textContent = `(${itemCount}/${parsedMode.total})`;
+            button.disabled = (itemCount !== parsedMode.total);
+        };
+        
+        const renderRankingSlots = (type) => {
+            const listEl = type === 'individual' ? dom.rankListEl : dom.groupRankListEl;
+            const rankedItems = type === 'individual' ? appData.state.rankedItems : appData.state.groupRankedItems;
+            const reasonAttribute = type === 'individual' ? 'data-reason-for-item' : 'data-reason-for-group-item';
+            const modeStr = type === 'individual' ? appData.state.individualRankMode : '15';
+            const parsedMode = parseRankMode(modeStr);
+
+            listEl.innerHTML = '';
+
+            const createSlotElement = (index) => {
+                const itemData = rankedItems[index];
+                const slotEl = document.createElement('div');
+                slotEl.dataset.slotIndex = index;
+                slotEl.dataset.rankType = type;
+                
+                if (itemData) {
+                    const item = appData.items.find(i => i.id === itemData.id);
+                    slotEl.className = 'rank-slot filled bg-slate-800 p-3 rounded-md';
+                    slotEl.dataset.itemId = item.id;
+                    slotEl.innerHTML = `<div class="flex items-center gap-2 mb-2"><span class="drag-handle">⠿</span><div class="flex-1 min-w-0 font-bold text-lg text-amber-400 flex items-center pointer-events-none"><span class="rank-number mr-2">${index + 1}위.</span><span>${item.icon} ${item.name}</span></div><button data-info-id="${item.id}" class="text-xs bg-sky-600 hover:bg-sky-500 text-white py-1 px-2 rounded ml-auto flex-shrink-0">정보</button><button data-clear-slot="${index}" data-clear-type="${type}" class="text-xs bg-red-600 hover:bg-red-500 text-white py-1 px-2 rounded flex-shrink-0">X</button></div><textarea ${reasonAttribute}="${item.id}" class="w-full bg-slate-900 text-white rounded p-2 text-sm" rows="2" placeholder="이 물품을 이 순위로 정한 이유는...">${itemData.reason || ''}</textarea>`;
+                } else {
+                    slotEl.className = 'rank-slot empty bg-slate-900/50 p-3 rounded-md border-2 border-slate-700 flex items-center justify-center h-24 transition';
+                    slotEl.innerHTML = `<div class="text-center text-slate-500"><span class="font-bold text-xl">${index + 1}위</span><p class="text-sm">클릭하여 물품 선택</p></div>`;
+                }
+                return slotEl;
+            };
+
+            if (parsedMode.type === 'top') {
+                for (let i = 0; i < parsedMode.top; i++) {
+                    listEl.appendChild(createSlotElement(i));
+                }
+            } else if (parsedMode.type === 'top-bottom') {
+                for (let i = 0; i < parsedMode.top; i++) {
+                    listEl.appendChild(createSlotElement(i));
+                }
+
+                const separator = document.createElement('div');
+                separator.className = 'text-center text-slate-500 py-2 border-y-2 border-slate-700 border-dashed my-2';
+                separator.innerHTML = `--- &darr; 하위 순위 &darr; ---`;
+                listEl.appendChild(separator);
+                
+                for (let i = 15 - parsedMode.bottom; i < 15; i++) {
+                    listEl.appendChild(createSlotElement(i));
+                }
+            }
+            updateFinishButtonState(type);
+        };
+        
+        const openItemSelectionModal = (slotIndex, type) => {
+            activeSelectionContext = { type, slotIndex };
+            const rankedItemIds = new Set( (type === 'individual' ? appData.state.rankedItems : appData.state.groupRankedItems).filter(Boolean).map(item => item.id) );
+            const availableItems = appData.items.filter(item => !rankedItemIds.has(item.id));
+            
+            dom.itemSelectionModalBodyEl.innerHTML = availableItems.length ? 
+                availableItems.map(item => `<button class="p-3 bg-slate-800 hover:bg-slate-700 rounded-lg text-left transition" data-item-id="${item.id}"><p class="font-bold text-lg">${item.icon} ${item.name}</p></button>`).join('') : 
+                `<p class="text-center text-slate-400 col-span-full">모든 물품이 선택되었습니다.</p>`;
+            
+            openModal(dom.itemSelectionModalEl);
+        };
+
+        const generateReport = () => {
+            dom.finalGroupName.textContent = appData.state.groupName;
+            dom.finalStudentName.textContent = appData.state.studentName;
+            dom.finalStudentNumber.textContent = appData.state.studentNumber;
+            dom.finalRole.textContent = (appData.state.selectedRole && appData.roles[appData.state.selectedRole]?.name) || '미정';
+
+            const getScoreCategory = (score) => {
+                if (score <= 25) return { img: 'https://i.imgur.com/u1Jg2Qk.png', class: 'border-emerald-400' };
+                if (score <= 32) return { img: 'https://i.imgur.com/v2XzN6Z.png', class: 'border-sky-400' };
+                if (score <= 45) return { img: 'https://i.imgur.com/Yh3a3yX.png', class: 'border-yellow-400' };
+                if (score <= 55) return { img: 'https://i.imgur.com/gK9O7aW.png', class: 'border-amber-500' };
+                return { img: 'https://i.imgur.com/E8w9k1n.png', class: 'border-red-500' };
+            };
+
+            const calculateScoreAndRenderList = (type) => {
+                const rankedItems = type === 'individual' ? appData.state.rankedItems : appData.state.groupRankedItems;
+                const listEl = type === 'individual' ? dom.individualFinalList : dom.groupFinalList;
+                const summaryEl = type === 'individual' ? dom.individualScoreSummary : dom.groupScoreSummary;
+                const modeStr = type === 'individual' ? (appData.state.individualRankMode || '15') : '15';
+                const parsedMode = parseRankMode(modeStr);
+
+                let totalScore = 0;
+                let modeDescription = "";
+
+                const rankedItemIds = new Set();
+                const rankedIndices = new Set();
+                let rankedScore = 0;
+
+                // Process ranked items and calculate their score
+                if (parsedMode.type === 'top') {
+                    for (let i = 0; i < parsedMode.top; i++) {
+                        const itemData = rankedItems[i];
+                        if (itemData) {
+                            const item = appData.items.find(it => it.id === itemData.id);
+                            rankedScore += Math.abs((i + 1) - item.uscgRank);
+                            rankedItemIds.add(item.id);
+                        }
+                        rankedIndices.add(i);
+                    }
+                    if(parsedMode.top < 15) modeDescription = `(상위 ${parsedMode.top}개)`;
+                } else if (parsedMode.type === 'top-bottom') {
+                     for (let i = 0; i < parsedMode.top; i++) {
+                        const itemData = rankedItems[i];
+                        if (itemData) {
+                            const item = appData.items.find(it => it.id === itemData.id);
+                            rankedScore += Math.abs((i + 1) - item.uscgRank);
+                            rankedItemIds.add(item.id);
+                        }
+                        rankedIndices.add(i);
+                    }
+                    for (let i = 15 - parsedMode.bottom; i < 15; i++) {
+                         const itemData = rankedItems[i];
+                        if (itemData) {
+                            const item = appData.items.find(it => it.id === itemData.id);
+                            rankedScore += Math.abs((i + 1) - item.uscgRank);
+                            rankedItemIds.add(item.id);
+                        }
+                        rankedIndices.add(i);
+                    }
+                    modeDescription = `(상위 ${parsedMode.top} & 하위 ${parsedMode.bottom}개)`;
+                }
+
+                // Calculate penalty for unranked items
+                let penaltyScore = 0;
+                const unrankedItems = appData.items.filter(i => !rankedItemIds.has(i.id));
+                const unrankedIndices = Array.from({length: 15}, (_, i) => i).filter(i => !rankedIndices.has(i));
+                
+                if (unrankedIndices.length > 0) {
+                    const penaltyRankSum = unrankedIndices.reduce((sum, index) => sum + (index + 1), 0);
+                    const penaltyRank = penaltyRankSum / unrankedIndices.length;
+                    unrankedItems.forEach(item => {
+                        penaltyScore += Math.abs(penaltyRank - item.uscgRank);
+                    });
+                }
+                
+                totalScore = rankedScore + Math.round(penaltyScore);
+
+                // Render list display
+                const validRankedItems = rankedItems.map((itemData, index) => ({...itemData, index}))
+                                                     .filter(itemData => itemData.id && rankedIndices.has(itemData.index));
+
+                listEl.innerHTML = validRankedItems.map(itemData => {
+                    const item = appData.items.find(i => i.id === itemData.id);
+                    const myRank = itemData.index + 1;
+                    return `<div class="p-2 bg-slate-800 rounded-md text-sm"><p class="font-bold">${myRank}위. ${item.icon} ${item.name}</p><p class="text-sm text-slate-400 mt-1 pl-3 break-keep">이유: ${itemData.reason || '작성하지 않음'}</p></div>`;
+                }).join('');
+                
+                if (unrankedItems.length > 0 && modeStr !== '15') {
+                    listEl.innerHTML += `<hr class="border-slate-600 my-2"><p class="text-xs text-slate-500 text-center pb-1">-- 순위 미지정 물품 --</p>`;
+                    listEl.innerHTML += unrankedItems.map(item => `<div class="p-2 bg-slate-900/50 rounded-md text-sm opacity-60"><p class="font-bold text-slate-400">${item.icon} ${item.name}</p></div>`).join('');
+                }
+
+                let evaluation = '';
+                if (totalScore <= 25) { evaluation = '생존 전문가! 해안경비대에서 연락 올 겁니다.'; }
+                else if (totalScore <= 32) { evaluation = '훌륭합니다! 함께 표류하고 싶은 동료입니다.'; }
+                else if (totalScore <= 45) { evaluation = '아슬아슬... 구조선이 빨리 오길 빕니다.'; }
+                else if (totalScore <= 55) { evaluation = '위험합니다! 상어가 친구하자고 할지도...'; }
+                else { evaluation = '이런... 바다거북이와 대화하게 될지도 모릅니다.'; }
+                
+                const category = getScoreCategory(totalScore);
+                const parentContainer = summaryEl.parentElement;
+
+                if (parentContainer) {
+                    parentContainer.className = parentContainer.className.replace(/border-(emerald|sky|yellow|amber|red)-[0-9]+/g, '').trim();
+                    parentContainer.classList.add('border-2', category.class);
+                }
+
+                summaryEl.innerHTML = `
+                    <div class="flex flex-col items-center gap-3">
+                        <img src="${category.img}" alt="결과 이미지" class="w-24 h-24 object-cover rounded-lg bg-slate-700" onerror="this.onerror=null;this.src='https://placehold.co/96x96/1e293b/94a3b8?text=Error';">
+                        <div class="text-center">
+                            <p class="text-lg font-bold">총점: <span class="text-red-400">${totalScore}점</span> ${modeDescription}</p>
+                            <p class="text-sm mt-1 text-slate-300">"${evaluation}"</p>
+                        </div>
+                    </div>`;
+            };
+
+            calculateScoreAndRenderList('individual');
+            calculateScoreAndRenderList('group');
+            
+            showScreen('report-screen');
+        };
+
+        const openKnowledgeModal = () => {
+            if (!appData.state.selectedRole) return;
+            const role = appData.roles[appData.state.selectedRole];
+            const warningHTML = `<div class="mb-4 p-3 bg-yellow-900/50 border border-yellow-700 rounded-lg text-yellow-300 text-sm break-keep"><p><b>▲ 중요:</b> 역할 지식은 생존에 대한 <b>단편적인 정보</b>일 뿐이며, 특정 물품의 높은 우선순위를 암시하는 것이 아닙니다. 전체 상황을 고려하여 판단하세요.</p></div>`;
+            const roleInfoList = role.info.map(fact => `<div class="bg-slate-700 p-3 rounded break-keep">- ${fact}</div>`).join('');
+            const itemsList = appData.items.map(item => `<div class="bg-slate-700 p-3 rounded"><p class="font-bold">${item.icon} ${item.name}</p><p class="text-sm text-slate-400 mt-1 break-keep">${item.description}</p></div>`).join('');
+            dom.knowledgeModalBodyEl.innerHTML = `<h3 class="text-2xl font-bold mb-4 text-center">정보 다시보기</h3><div class="max-h-[60vh] overflow-y-auto p-2 space-y-4">${warningHTML}<div><h4 class="text-lg font-bold text-amber-300 mb-2">🧠 [${role.name}] 나의 정보</h4><div class="space-y-2">${roleInfoList}</div></div><hr class="border-slate-600 my-4"><div><h4 class="text-lg font-bold text-cyan-300 mb-2">🎒 전체 물품 정보</h4><div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${itemsList}</div></div></div>`;
+            openModal(dom.knowledgeModalEl);
+        };
+        
+        const restoreSession = () => {
+            try {
+                const savedStateJSON = localStorage.getItem(SAVE_KEY);
+                if (!savedStateJSON) return false;
+                
+                const savedState = JSON.parse(savedStateJSON);
+                 if (savedState.version !== APP_VERSION) {
+                      localStorage.removeItem(SAVE_KEY);
+                      return false;
+                 }
+
+                appData.state = savedState;
+                dom.groupNameInput.value = appData.state.groupName || '';
+                dom.studentNumberInput.value = appData.state.studentNumber || '';
+                dom.studentNameInput.value = appData.state.studentName || '';
+
+                const screenToRestore = appData.state.currentScreen;
+                
+                if (screenToRestore === 'main-screen') renderRankingSlots('individual');
+                else if (screenToRestore === 'group-ranking-screen') renderRankingSlots('group');
+                else if (screenToRestore === 'report-screen') generateReport();
+                else if (screenToRestore === 'evaluation-screen') showEvaluationScreen();
+                else if (!document.getElementById(screenToRestore)) { // Fallback for invalid screen
+                    showScreen('welcome-screen');
+                    return true;
+                }
+                
+                showScreen(screenToRestore);
+                return true;
+            } catch (e) {
+                localStorage.removeItem(SAVE_KEY);
+                return false;
+            }
+        };
+
+        const generateReportCanvas = () => {
+            const reportContent = document.getElementById('report-content');
+            const individualList = document.getElementById('individual-final-list');
+            const groupList = document.getElementById('group-final-list');
+            const oldIndividualHeight = individualList.style.maxHeight;
+            const oldGroupHeight = groupList.style.maxHeight;
+            individualList.style.maxHeight = 'none';
+            groupList.style.maxHeight = 'none';
+            individualList.style.overflow = 'visible';
+            groupList.style.overflow = 'visible';
+
+            return new Promise((resolve) => {
+                html2canvas(reportContent, { 
+                    backgroundColor: "#030712",
+                    onclone: (doc) => { doc.getElementById('report-content').style.color = '#e6f1ff'; }
+                }).then(canvas => {
+                    individualList.style.maxHeight = oldIndividualHeight;
+                    groupList.style.maxHeight = oldGroupHeight;
+                    individualList.style.overflow = 'auto';
+                    groupList.style.overflow = 'auto';
+                    resolve(canvas);
+                });
+            });
+        };
+        
+        const downloadReport = () => {
+             generateReportCanvas().then(canvas => {
+                const link = document.createElement('a');
+                const groupName = appData.state.groupName || '소속없음';
+                const studentNumber = appData.state.studentNumber || '00';
+                const studentName = appData.state.studentName || '이름없음';
+                link.download = `바다생존_${groupName}_${studentNumber}번_${studentName}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            });
+        };
+
+        const shareReport = async () => {
+            try {
+                const canvas = await generateReportCanvas();
+                canvas.toBlob(async (blob) => {
+                    const groupName = appData.state.groupName || '소속없음';
+                    const studentNumber = appData.state.studentNumber || '00';
+                    const studentName = appData.state.studentName || '이름없음';
+                    const fileName = `바다생존_${groupName}_${studentNumber}번_${studentName}.png`;
+                    const file = new File([blob], fileName, { type: 'image/png' });
+
+                    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                        await navigator.share({
+                            files: [file],
+                            title: '나의 바다 생존 보고서',
+                            text: '바다에서 살아남기! 우리 모둠의 점수를 확인해보세요!',
+                        });
+                    } else {
+                        showAlert('이 브라우저에서는 공유 기능을 지원하지 않습니다.', '알림');
+                    }
+                }, 'image/png');
+            } catch (error) {
+                console.error('공유 기능 오류:', error);
+                showAlert('이미지를 공유하는 중 오류가 발생했습니다.', '오류');
+            }
+        };
+
+        const groupExcelHeaderOptions = {
+            rank: ['순위', 'rank', '우선순위', 'priority'],
+            item: ['물품', '아이템', '항목', 'item'],
+            reason: ['이유', '근거', '사유', 'reason']
+        };
+
+        const normalizeExcelHeader = (value) => String(value ?? '').trim().toLowerCase();
+
+        const parseGroupExcelRows = (rows) => {
+            if (!rows.length) throw new Error('엑셀 데이터가 비어 있습니다.');
+
+            const headers = rows[0].map(normalizeExcelHeader);
+            const findHeaderIndex = (candidates) => headers.findIndex(header => candidates.includes(header));
+
+            const rankIdx = findHeaderIndex(groupExcelHeaderOptions.rank);
+            const itemIdx = findHeaderIndex(groupExcelHeaderOptions.item);
+            const reasonIdx = findHeaderIndex(groupExcelHeaderOptions.reason);
+
+            if (rankIdx === -1 || itemIdx === -1) {
+                throw new Error('순위와 물품 열을 찾을 수 없습니다. 헤더를 다시 확인해주세요.');
+            }
+
+            const ranking = Array(appData.items.length).fill(null);
+            const usedItems = new Set();
+            const warnings = [];
+
+            for (let rowIndex = 1; rowIndex < rows.length; rowIndex++) {
+                const row = rows[rowIndex] || [];
+                const rawRank = row[rankIdx];
+                const rawItem = row[itemIdx];
+                const rawReason = reasonIdx === -1 ? '' : row[reasonIdx];
+                const rowLabel = `${rowIndex + 1}행`;
+
+                const rankFilled = rawRank !== undefined && rawRank !== null && String(rawRank).trim() !== '';
+                const itemFilled = rawItem !== undefined && rawItem !== null && String(rawItem).trim() !== '';
+                const reasonFilled = rawReason !== undefined && rawReason !== null && String(rawReason).trim() !== '';
+
+                if (!rankFilled && !itemFilled && !reasonFilled) continue;
+
+                if (!rankFilled || !itemFilled) {
+                    warnings.push(`${rowLabel}: 순위와 물품을 모두 입력해야 합니다.`);
+                    continue;
+                }
+
+                const rankNumber = Number(rawRank);
+                if (!Number.isInteger(rankNumber) || rankNumber < 1 || rankNumber > appData.items.length) {
+                    warnings.push(`${rowLabel}: 순위 값이 올바르지 않습니다.`);
+                    continue;
+                }
+
+                const itemName = String(rawItem).trim();
+                const matchedItem = appData.items.find(item => item.name === itemName);
+                if (!matchedItem) {
+                    warnings.push(`${rowLabel}: "${itemName}"은(는) 물품 목록에 없습니다.`);
+                    continue;
+                }
+
+                const targetIndex = rankNumber - 1;
+                if (ranking[targetIndex]) {
+                    const existingItem = appData.items.find(item => item.id === ranking[targetIndex].id);
+                    warnings.push(`${rowLabel}: 순위 ${rankNumber}에는 이미 "${existingItem?.name || '다른 물품'}"이 있습니다.`);
+                    continue;
+                }
+
+                if (usedItems.has(matchedItem.id)) {
+                    warnings.push(`${rowLabel}: "${itemName}"은(는) 이미 다른 순위에 선택되었습니다.`);
+                    continue;
+                }
+
+                ranking[targetIndex] = { id: matchedItem.id, reason: String(rawReason ?? '').trim() };
+                usedItems.add(matchedItem.id);
+            }
+
+            return { ranking, warnings };
+        };
+
+        const applyGroupExcelImport = (ranking) => {
+            const nextState = Array(appData.items.length).fill(null);
+            ranking.forEach((value, index) => { nextState[index] = value ? { ...value } : null; });
+            appData.state.groupRankedItems = nextState;
+            renderRankingSlots('group');
+            autoSave();
+        };
+
+        const downloadGroupExcelTemplate = () => {
+            const wb = XLSX.utils.book_new();
+            const templateSheet = [
+                ['순위', '물품', '이유'],
+                ...appData.items.map((item, index) => [index + 1, item.name, ''])
+            ];
+            const ws = XLSX.utils.aoa_to_sheet(templateSheet);
+            XLSX.utils.book_append_sheet(wb, ws, '모둠 우선순위');
+            XLSX.writeFile(wb, '모둠활동_우선순위_양식.xlsx');
+            if (dom.groupExcelStatus) dom.groupExcelStatus.textContent = '엑셀 양식을 다운로드했습니다.';
+        };
+
+        const handleGroupExcelUpload = (file) => {
+            if (!file) return;
+            if (dom.groupExcelStatus) dom.groupExcelStatus.textContent = '엑셀을 불러오는 중입니다...';
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = new Uint8Array(event.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    if (!firstSheet) throw new Error('첫 번째 시트를 찾을 수 없습니다.');
+
+                    const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: true });
+                    const { ranking, warnings } = parseGroupExcelRows(rows);
+                    applyGroupExcelImport(ranking);
+
+                    const filledCount = ranking.filter(Boolean).length;
+                    const warningCount = warnings.length;
+                    if (dom.groupExcelStatus) {
+                        let statusText = `엑셀에서 ${filledCount}개의 순위를 불러왔습니다.`;
+                        if (warningCount) statusText += ` (건너뜀 ${warningCount}건)`;
+                        dom.groupExcelStatus.textContent = statusText;
+                    }
+
+                    if (warnings.length) {
+                        showAlert(warnings.join('\n'), '일부 항목 건너뜀');
+                    } else {
+                        showAlert('엑셀 데이터를 불러왔습니다.', '불러오기 완료');
+                    }
+                } catch (error) {
+                    console.error('Group Excel import error:', error);
+                    if (dom.groupExcelStatus) dom.groupExcelStatus.textContent = '엑셀을 불러오지 못했습니다. 양식을 확인하세요.';
+                    showAlert(error.message || '엑셀을 읽는 중 오류가 발생했습니다.', '불러오기 오류');
+                } finally {
+                    if (dom.groupExcelUploadInput) dom.groupExcelUploadInput.value = '';
+                }
+            };
+
+            reader.onerror = () => {
+                if (dom.groupExcelStatus) dom.groupExcelStatus.textContent = '파일을 읽는 중 오류가 발생했습니다.';
+                showAlert('파일을 읽는 중 문제가 발생했습니다.', '불러오기 오류');
+                if (dom.groupExcelUploadInput) dom.groupExcelUploadInput.value = '';
+            };
+
+            reader.readAsArrayBuffer(file);
+        };
+
+        const exportToExcel = () => {
+            const wb = XLSX.utils.book_new();
+            const data = [
+                ["소속", appData.state.groupName],
+                ["번호", appData.state.studentNumber],
+                ["이름", appData.state.studentName],
+                ["역할", appData.roles[appData.state.selectedRole]?.name || ''],
+                [],
+                ["구분", "물품", "나의 순위", "모둠 순위", "전문가 순위", "나의 점수차", "모둠 점수차"],
+            ];
+
+            const individualRanks = {};
+            appData.state.rankedItems.forEach((item, index) => {
+                if (item) individualRanks[item.id] = index + 1;
+            });
+            const groupRanks = {};
+            appData.state.groupRankedItems.forEach((item, index) => {
+                if (item) groupRanks[item.id] = index + 1;
+            });
+
+            let individualTotalDiff = 0;
+            let groupTotalDiff = 0;
+
+            appData.items.forEach(item => {
+                const myRank = individualRanks[item.id] || '미선택';
+                const groupRank = groupRanks[item.id] || '미선택';
+                const expertRank = item.uscgRank;
+                const myDiff = (typeof myRank === 'number') ? Math.abs(myRank - expertRank) : '';
+                const groupDiff = (typeof groupRank === 'number') ? Math.abs(groupRank - expertRank) : '';
+                
+                if (typeof myDiff === 'number') individualTotalDiff += myDiff;
+                if (typeof groupDiff === 'number') groupTotalDiff += groupDiff;
+
+                data.push(['', item.name, myRank, groupRank, expertRank, myDiff, groupDiff]);
+            });
+            
+            data.push([]);
+            data.push(['', '', '', '', '총점 (낮을수록 좋음)', individualTotalDiff, groupTotalDiff]);
+            
+            const ws = XLSX.utils.aoa_to_sheet(data);
+            XLSX.utils.book_append_sheet(wb, ws, "결과");
+            const fileName = `바다생존_${appData.state.groupName}_${appData.state.studentNumber}번_${appData.state.studentName}.xlsx`;
+            XLSX.writeFile(wb, fileName);
+        };
+
+        // --- Evaluation Functions ---
+        const showEvaluationScreen = () => {
+            renderEvaluationScreen();
+            showScreen('evaluation-screen');
+        };
+
+        const renderEvaluationScreen = () => {
+            dom.evalGroupName.textContent = `${appData.state.groupName || '소속없음'} 모둠`;
+            dom.evalStudentName.textContent = `${appData.state.studentNumber || '00'}번 ${appData.state.studentName || '이름없음'}`;
+            dom.evalRoleName.textContent = appData.roles[appData.state.selectedRole]?.name || '미정';
+
+            const container = dom.peerEvaluationContainer;
+            container.innerHTML = '';
+            if (!appData.state.peerEvaluations || appData.state.peerEvaluations.length === 0) {
+                appData.state.peerEvaluations = [];
+            }
+            const roleOptions = Object.keys(appData.roles).map(roleId => {
+                const role = appData.roles[roleId];
+                return `<option value="${role.name}">${role.name}</option>`;
+            }).join('');
+
+            appData.state.peerEvaluations.forEach((peer, index) => {
+                const peerCard = document.createElement('div');
+                peerCard.className = 'p-4 bg-slate-900/50 rounded-lg border border-slate-700 relative pt-8';
+                peerCard.dataset.peerId = peer.id;
+                peerCard.innerHTML = `
+                    <button data-remove-peer-id="${peer.id}" class="absolute top-2 right-2 text-xs bg-red-700 hover:bg-red-600 text-white py-1 px-2 rounded">삭제</button>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label for="peer${peer.id}_name" class="block text-slate-300 mb-1 text-sm">모둠원 ${index + 1} 이름:</label>
+                            <input type="text" id="peer${peer.id}_name" value="${peer.name || ''}" class="peer-input bg-slate-700 border-slate-600 text-white text-sm rounded-lg block w-full p-2" placeholder="이름">
+                        </div>
+                        <div>
+                            <label for="peer${peer.id}_role" class="block text-slate-300 mb-1 text-sm">모둠원 ${index + 1} 역할:</label>
+                            <select id="peer${peer.id}_role" class="peer-input bg-slate-700 border-slate-600 text-white text-sm rounded-lg block w-full p-2.5">
+                                <option value="">역할 선택</option>
+                                ${roleOptions}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="space-y-3">
+                        <fieldset>
+                            <legend class="text-slate-300 mb-2 text-sm font-semibold">토의 참여:</legend>
+                            <div class="flex flex-wrap gap-2">
+                                <input type="radio" name="peer${peer.id}_q1" value="4" id="p${peer.id}q1_4"><label for="p${peer.id}q1_4" class="eval-radio-label">매우 잘함</label>
+                                <input type="radio" name="peer${peer.id}_q1" value="3" id="p${peer.id}q1_3"><label for="p${peer.id}q1_3" class="eval-radio-label">잘함</label>
+                                <input type="radio" name="peer${peer.id}_q1" value="2" id="p${peer.id}q1_2"><label for="p${peer.id}q1_2" class="eval-radio-label">보통</label>
+                                <input type="radio" name="peer${peer.id}_q1" value="1" id="p${peer.id}q1_1"><label for="p${peer.id}q1_1" class="eval-radio-label">부족</label>
+                            </div>
+                        </fieldset>
+                        <fieldset>
+                            <legend class="text-slate-300 mb-2 text-sm font-semibold">역할 지식 활용:</legend>
+                            <p class="text-xs text-slate-400 mb-2">역할 정보 속에서 핵심 정보와 그렇지 않은 정보를 잘 구분하여 활용했나요?</p>
+                             <div class="flex flex-wrap gap-2">
+                                <input type="radio" name="peer${peer.id}_q2" value="4" id="p${peer.id}q2_4"><label for="p${peer.id}q2_4" class="eval-radio-label">매우 잘함</label>
+                                <input type="radio" name="peer${peer.id}_q2" value="3" id="p${peer.id}q2_3"><label for="p${peer.id}q2_3" class="eval-radio-label">잘함</label>
+                                <input type="radio" name="peer${peer.id}_q2" value="2" id="p${peer.id}q2_2"><label for="p${peer.id}q2_2" class="eval-radio-label">보통</label>
+                                <input type="radio" name="peer${peer.id}_q2" value="1" id="p${peer.id}q2_1"><label for="p${peer.id}q2_1" class="eval-radio-label">부족</label>
+                            </div>
+                        </fieldset>
+                        <fieldset>
+                             <legend class="text-slate-300 mb-2 text-sm font-semibold">협력 태도:</legend>
+                             <div class="flex flex-wrap gap-2">
+                                <input type="radio" name="peer${peer.id}_q3" value="4" id="p${peer.id}q3_4"><label for="p${peer.id}q3_4" class="eval-radio-label">매우 잘함</label>
+                                <input type="radio" name="peer${peer.id}_q3" value="3" id="p${peer.id}q3_3"><label for="p${peer.id}q3_3" class="eval-radio-label">잘함</label>
+                                <input type="radio" name="peer${peer.id}_q3" value="2" id="p${peer.id}q3_2"><label for="p${peer.id}q3_2" class="eval-radio-label">보통</label>
+                                <input type="radio" name="peer${peer.id}_q3" value="1" id="p${peer.id}q3_1"><label for="p${peer.id}q3_1" class="eval-radio-label">부족</label>
+                            </div>
+                        </fieldset>
+                        <div>
+                             <label for="peer${peer.id}_good" class="text-slate-300 mb-2 text-sm font-semibold">이 친구의 좋았던 점:</label>
+                             <textarea id="peer${peer.id}_good" rows="2" class="mt-1 bg-slate-700 border-slate-600 text-white text-sm rounded-lg block w-full p-2">${peer.goodPoint || ''}</textarea>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(peerCard);
+                // Restore selected/checked state
+                if(peer.role) peerCard.querySelector(`#peer${peer.id}_role`).value = peer.role;
+                if(peer.q1) peerCard.querySelector(`input[name="peer${peer.id}_q1"][value="${peer.q1}"]`).checked = true;
+                if(peer.q2) peerCard.querySelector(`input[name="peer${peer.id}_q2"][value="${peer.q2}"]`).checked = true;
+                if(peer.q3) peerCard.querySelector(`input[name="peer${peer.id}_q3"][value="${peer.q3}"]`).checked = true;
+            });
+        };
+
+        const saveEvaluationDataFromDOM = (doAlert = false) => {
+            if (!appData.state.peerEvaluations) appData.state.peerEvaluations = [];
+            
+            appData.state.peerEvaluations.forEach(peer => {
+                const peerCard = document.querySelector(`[data-peer-id="${peer.id}"]`);
+                if (peerCard) {
+                    peer.name = peerCard.querySelector(`#peer${peer.id}_name`)?.value || '';
+                    peer.role = peerCard.querySelector(`#peer${peer.id}_role`)?.value || '';
+                    peer.q1 = peerCard.querySelector(`input[name="peer${peer.id}_q1"]:checked`)?.value || null;
+                    peer.q2 = peerCard.querySelector(`input[name="peer${peer.id}_q2"]:checked`)?.value || null;
+                    peer.q3 = peerCard.querySelector(`input[name="peer${peer.id}_q3"]:checked`)?.value || null;
+                    peer.goodPoint = peerCard.querySelector(`#peer${peer.id}_good`)?.value || '';
+                }
+            });
+
+            if (doAlert) {
+                showAlert('평가 내용이 임시 저장되었습니다.');
+            }
+        };
+
+        const downloadEvaluationAsImage = async () => {
+            saveEvaluationDataFromDOM(false); 
+            const evalContainer = document.getElementById('evaluation-form-container');
+            const addBtn = document.getElementById('add-peer-btn');
+            const removeBtns = evalContainer.querySelectorAll('[data-remove-peer-id]');
+            
+            const oldMaxHeight = evalContainer.style.maxHeight;
+            const oldOverflow = evalContainer.style.overflowY;
+            evalContainer.style.maxHeight = 'none';
+            evalContainer.style.overflowY = 'visible';
+            addBtn.style.display = 'none';
+            removeBtns.forEach(btn => btn.style.display = 'none');
+            
+            try {
+                const canvas = await html2canvas(evalContainer, {
+                        backgroundColor: "#0f172a", // Match form background
+                        scale: 2 
+                });
+                const link = document.createElement('a');
+                const groupName = appData.state.groupName || '소속없음';
+                const studentName = appData.state.studentName || '이름없음';
+                link.download = `바다생존_상호평가_${groupName}_${studentName}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+                showAlert('평가 결과가 이미지로 저장되었습니다.');
+            } catch (e) {
+                console.error("Error generating evaluation image:", e);
+                showAlert('이미지 저장 중 오류가 발생했습니다.');
+            } finally {
+                addBtn.style.display = 'inline-block';
+                removeBtns.forEach(btn => btn.style.display = 'block');
+                evalContainer.style.maxHeight = oldMaxHeight;
+                evalContainer.style.overflowY = oldOverflow;
+            }
+        };
+
+        const openIndividualRankViewModal = () => {
+            const rankedItems = appData.state.rankedItems;
+            const listEl = dom.individualRankViewBody;
+            const modeStr = appData.state.individualRankMode || '15';
+            const parsedMode = parseRankMode(modeStr);
+            const rankedIndices = new Set();
+            
+            if (parsedMode.type === 'top') {
+                for (let i = 0; i < parsedMode.top; i++) rankedIndices.add(i);
+            } else if (parsedMode.type === 'top-bottom') {
+                for (let i = 0; i < parsedMode.top; i++) rankedIndices.add(i);
+                for (let i = 15 - parsedMode.bottom; i < 15; i++) rankedIndices.add(i);
+            }
+
+            const validRankedItems = rankedItems
+                .map((itemData, index) => ({...itemData, index}))
+                .filter(itemData => itemData.id && rankedIndices.has(itemData.index));
+
+            if (validRankedItems.length === 0) {
+                listEl.innerHTML = `<p class="text-center text-slate-400">아직 개인 순위를 정하지 않았습니다.</p>`;
+            } else {
+                listEl.innerHTML = validRankedItems.map(itemData => {
+                    const item = appData.items.find(i => i.id === itemData.id);
+                    return `<div class="p-2 bg-slate-800 rounded-md text-sm"><p class="font-bold">${itemData.index + 1}위. ${item.icon} ${item.name}</p><p class="text-sm text-slate-400 mt-1 pl-3 break-keep">이유: ${itemData.reason || '작성하지 않음'}</p></div>`;
+                }).join('');
+            }
+            openModal(dom.individualRankViewModal);
+        };
+
+        const handleBodyClick = (event) => {
+            const target = event.target;
+            const roleCard = target.closest('.role-card');
+            const emptySlot = target.closest('.rank-slot.empty');
+            const infoButton = target.closest('[data-info-id]');
+            const clearButton = target.closest('[data-clear-slot]');
+            const itemSelectionButton = target.closest('#item-selection-modal-body button');
+            const rankModeButton = target.closest('.rank-mode-select-btn');
+            const modalClose = target.closest('.close-modal-btn') || (target.classList.contains('modal-base') && !target.querySelector('.modal-content')) || target.closest('.modal-ok-btn') || target.closest('.modal-cancel-btn');
+            const removePeerBtn = target.closest('[data-remove-peer-id]');
+
+
+            if (rankModeButton) {
+                const newModeStr = rankModeButton.dataset.mode;
+                appData.state.individualRankMode = newModeStr;
+                closeModal(dom.rankModeModalEl);
+                renderRankingSlots('individual');
+                autoSave();
+                return;
+            }
+
+            if(removePeerBtn) {
+                const peerId = Number(removePeerBtn.dataset.removePeerId);
+                showConfirm('이 모둠원을 평가 목록에서 삭제하시겠습니까?', () => {
+                     appData.state.peerEvaluations = appData.state.peerEvaluations.filter(p => p.id !== peerId);
+                     renderEvaluationScreen();
+                     autoSave();
+                }, '모둠원 삭제');
+            }
+
+            const actions = {
+                'start-class-btn': () => {
+                    if (localStorage.getItem(SAVE_KEY)) {
+                        showConfirm('저장된 진행 상황을 이어서 하시겠습니까?', 
+                            () => { if (!restoreSession()) { showAlert("데이터를 불러오지 못했습니다. 새로 시작합니다.", "오류"); restartApp(); } }, 
+                            '진행 상황 발견', 
+                            { 
+                                onCancel: () => {
+                                    showConfirm(
+                                        '정말 이전 데이터를 모두 지우고 새로 시작하시겠습니까? 이 작업은 되돌릴 수 없습니다.',
+                                        () => { // onConfirm for the second popup
+                                            localStorage.removeItem(SAVE_KEY);
+                                            appData.state = getNewState();
+                                            showScreen('setup-screen');
+                                        },
+                                        '새로 시작 확인',
+                                        { okText: '삭제하고 시작', cancelText: '취소', okClass: 'bg-red-600 hover:bg-red-700' }
+                                    );
+                                }, 
+                                okText: '이어하기', 
+                                cancelText: '새로 시작', 
+                                okClass: 'bg-green-600 hover:bg-green-700', 
+                                cancelClass: 'bg-yellow-600 hover:bg-yellow-700'
+                            }
+                        );
+                    } else {
+                        appData.state = getNewState();
+                        showScreen('setup-screen');
+                    }
+                },
+                'start-mission-btn': startMission,
+                'skip-emergency-btn': () => { stopMusicAndClear(); skipEmergencySequence(); },
+                'proceed-to-guide-btn': () => { stopMusicAndClear(); showScreen('activity-guide-screen'); },
+                'go-to-role-selection-btn': () => showScreen('role-screen'),
+                'go-to-ranking-btn': () => { showScreen('main-screen'); renderRankingSlots('individual'); },
+                'finish-individual-button': () => { autoSave(); showScreen('discussion-guide-screen'); },
+                'go-to-group-ranking-btn': () => { showScreen('group-ranking-screen'); renderRankingSlots('group'); },
+                'finish-group-button': () => { autoSave(); generateReport(); },
+                'open-knowledge-modal-btn': openKnowledgeModal,
+                'open-knowledge-modal-btn-group': openKnowledgeModal,
+                'open-rank-mode-modal-btn': () => openModal(dom.rankModeModalEl),
+                'back-to-start-btn': () => showConfirm('진행 상황이 모두 사라집니다. 정말 처음으로 돌아가시겠습니까?', restartApp, '처음으로 돌아가기'),
+                'exit-app-btn': () => showConfirm('정말 종료하시겠습니까? 진행 상황은 저장됩니다.', () => window.close(), '종료', { okText: '종료', cancelText: '취소' }),
+                'restart-btn': () => showConfirm('정말 모든 진행 상황을 삭제하고 다시 시작하시겠습니까?', restartApp, '다시 시작하기', { okText: '다시 시작' }),
+                'open-save-share-modal-btn': () => openModal(dom.saveShareModalEl),
+                'save-image-btn': () => { closeModal(dom.saveShareModalEl); downloadReport(); },
+                'save-excel-btn': () => { closeModal(dom.saveShareModalEl); exportToExcel(); },
+                'share-image-btn': () => { closeModal(dom.saveShareModalEl); shareReport(); },
+                'go-to-evaluation-btn': showEvaluationScreen,
+                'back-to-report-btn': () => showScreen('report-screen'),
+                'save-evaluation-btn': downloadEvaluationAsImage,
+                'view-individual-rank-btn': openIndividualRankViewModal,
+                'group-excel-upload-btn': () => dom.groupExcelUploadInput?.click(),
+                'group-excel-template-btn': downloadGroupExcelTemplate,
+                'back-to-individual-ranking-btn': () => {
+                    renderRankingSlots('individual');
+                    showScreen('main-screen');
+                },
+                'add-peer-btn': () => {
+                    if (appData.state.peerEvaluations.length >= 5) {
+                        showAlert('모둠원은 최대 5명까지 추가할 수 있습니다.');
+                        return;
+                    }
+                    appData.state.peerEvaluations.push({ id: Date.now(), name: '', role: '', q1: null, q2: null, q3: null, goodPoint: '' });
+                    renderEvaluationScreen();
+                },
+                'check-understanding-btn': () => {
+                    closeModal(document.getElementById('role-understanding-modal'));
+                    proceedToKnowledgeScreen();
+                },
+            };
+
+            if (actions[target.id]) {
+                actions[target.id]();
+            } else if (roleCard) {
+                selectRole(roleCard.dataset.role);
+            } else if (emptySlot) {
+                openItemSelectionModal(parseInt(emptySlot.dataset.slotIndex, 10), emptySlot.dataset.rankType);
+            } else if (infoButton) {
+                const item = appData.items.find(i => i.id == infoButton.dataset.infoId);
+                if (item) {
+                    dom.itemInfoModalBodyEl.innerHTML = `<h3 class="text-2xl font-bold mb-4">${item.icon} ${item.name}</h3><p class="break-keep">${item.description || '정보 없음'}</p>`;
+                    openModal(dom.itemInfoModalEl);
+                }
+            } else if (clearButton) {
+                const slotIndex = parseInt(clearButton.dataset.clearSlot, 10);
+                const type = clearButton.dataset.clearType;
+                const rankedItems = type === 'individual' ? appData.state.rankedItems : appData.state.groupRankedItems;
+                rankedItems[slotIndex] = null;
+                renderRankingSlots(type);
+                autoSave();
+            } else if (itemSelectionButton) {
+                const { type, slotIndex } = activeSelectionContext;
+                const rankedItems = type === 'individual' ? appData.state.rankedItems : appData.state.groupRankedItems;
+                rankedItems[slotIndex] = { id: parseInt(itemSelectionButton.dataset.itemId, 10), reason: '' };
+                closeModal(dom.itemSelectionModalEl);
+                renderRankingSlots(type);
+                autoSave();
+            } else if (modalClose) {
+                closeModal(target.closest('.modal-base'));
+            }
+        };
+        
+        const initialize = () => {
+            for (let i = 1; i <= 40; i++) {
+                const opt = document.createElement('option');
+                opt.value = String(i).padStart(2, '0');
+                opt.textContent = `${i}번`;
+                dom.studentNumberInput.appendChild(opt);
+            }
+
+            const roleContainer = document.querySelector('#role-screen .grid');
+            roleContainer.innerHTML = Object.keys(appData.roles).map(key => {
+                const role = appData.roles[key];
+                return `<div data-role="${key}" class="role-card bg-slate-800 p-3 sm:p-4 rounded-lg text-center cursor-pointer hover:bg-slate-700 hover:scale-105 transition-all overflow-hidden"><img src="${role.imageUrl}" alt="${role.name}" class="w-full aspect-square object-cover bg-slate-700 rounded-md" onerror="this.onerror=null;this.src='https://placehold.co/400x400/1e293b/94a3b8?text=Image+Error';"><div class="pt-2 sm:pt-4"><h3 class="text-lg sm:text-xl font-bold">${role.name}</h3><p class="text-slate-400 text-sm break-keep mt-1">${role.description}</p></div></div>`;
+            }).join('');
+
+            dom.fullscreenBtn.addEventListener('click', toggleFullScreen);
+            document.addEventListener('fullscreenchange', updateFullscreenIcons);
+            document.body.addEventListener('click', handleBodyClick);
+            
+            // Setup robust reason saving
+            const updateReasonInState = (type, itemId, reason) => {
+                const rankedItems = type === 'individual' ? appData.state.rankedItems : appData.state.groupRankedItems;
+                const itemIndex = rankedItems.findIndex(item => item && item.id === itemId);
+                if (itemIndex !== -1) {
+                    rankedItems[itemIndex].reason = reason;
+                }
+            };
+            
+            const setupReasonSaving = (listEl, type) => {
+                listEl.addEventListener('input', (e) => {
+                    if (e.target.matches('textarea')) {
+                        const reasonAttribute = type === 'individual' ? 'data-reason-for-item' : 'data-reason-for-group-item';
+                        const itemId = parseInt(e.target.getAttribute(reasonAttribute), 10);
+                        if (itemId) {
+                            updateReasonInState(type, itemId, e.target.value);
+                            autoSave(); // Save on every keystroke in a reason textarea
+                        }
+                    }
+                });
+            };
+            setupReasonSaving(dom.rankListEl, 'individual');
+            setupReasonSaving(dom.groupRankListEl, 'group');
+            dom.groupExcelUploadInput?.addEventListener('change', (e) => handleGroupExcelUpload(e.target.files[0]));
+            dom.evaluationFormContainer.addEventListener('input', (e) => { if(e.target.closest('.peer-input, fieldset, textarea')) autoSave(); });
+            
+            new Sortable(dom.rankListEl, { animation: 150, handle: '.drag-handle', onEnd: (evt) => {
+                const itemData = appData.state.rankedItems.splice(evt.oldIndex, 1)[0];
+                appData.state.rankedItems.splice(evt.newIndex, 0, itemData);
+                renderRankingSlots('individual');
+                autoSave();
+            }});
+            new Sortable(dom.groupRankListEl, { animation: 150, handle: '.drag-handle', onEnd: (evt) => {
+                const itemData = appData.state.groupRankedItems.splice(evt.oldIndex, 1)[0];
+                appData.state.groupRankedItems.splice(evt.newIndex, 0, itemData);
+                renderRankingSlots('group');
+                autoSave();
+            }});
+            
+            appData.state = getNewState();
+            showScreen('welcome-screen');
+            updateFullscreenIcons();
+            setInterval(saveState, 30000);
+            window.addEventListener('beforeunload', saveState);
+            document.addEventListener('visibilitychange', () => { if (document.hidden) saveState(); });
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initialize);
+        } else {
+            initialize();
+        }
+    })();
+    </script>
+</body>
+</html>
